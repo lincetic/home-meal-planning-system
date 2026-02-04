@@ -10,6 +10,9 @@ importers:
 
   apps/api:
     devDependencies:
+      '@tfm/contracts':
+        specifier: workspace:*
+        version: link:../../packages/contracts
       '@types/node':
         specifier: ^25.2.0
         version: 25.2.0
@@ -19,6 +22,12 @@ importers:
       vitest:
         specifier: ^4.0.18
         version: 4.0.18(@types/node@25.2.0)
+
+  packages/contracts:
+    dependencies:
+      zod:
+        specifier: ^3.23.8
+        version: 3.25.76
 
 packages:
 
@@ -545,6 +554,9 @@ packages:
     engines: {node: '>=8'}
     hasBin: true
 
+  zod@3.25.76:
+    resolution: {integrity: sha512-gzUt/qt81nXsFGKIFcC3YnfEAx5NkunCfnDlvuBSSFS02bcXu4Lmea0AFIUwbLWxWPx3d9p8S5QoaujKcNQxcQ==}
+
 snapshots:
 
   '@esbuild/aix-ppc64@0.27.2':
@@ -931,3 +943,5 @@ snapshots:
     dependencies:
       siginfo: 2.0.0
       stackback: 0.0.2
+
+  zod@3.25.76: {}
