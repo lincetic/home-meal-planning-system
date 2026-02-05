@@ -30,6 +30,28 @@ pnpm install
 ```bash
 pnpm -C apps/api test
 ```
+
+### Ejecutar servidor API (modo desarrollo)
+```bash
+pnpm -C apps/api dev
+```
+**Probar endpoint (PowerShell)**
+```bash
+$body = @{
+  householdId = "550e8400-e29b-41d4-a716-446655440000"
+  operations = @(
+    @{
+      type="ADD"
+      ingredientId="550e8400-e29b-41d4-a716-446655440000"
+      amount=2
+      expirationDate="2026-02-05"
+    }
+  )
+} | ConvertTo-Json -Depth 5
+
+Invoke-RestMethod -Method Post -Uri http://127.0.0.1:3000/inventory/update -ContentType "application/json" -Body $body
+```
+
 ## d) Estructura del proyecto
 /apps
   /api        # backend (dominio, tests)
@@ -55,3 +77,7 @@ Dentro de **apps/api/src**:
 - Tests unitarios del dominio:
     - Quantity
     - Inventory
+
+## API documentation
+- [Architecture overview](docs/architecture.md)
+- [HTTP API examples](docs/http-examples.md)

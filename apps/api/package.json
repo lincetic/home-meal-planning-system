@@ -5,16 +5,21 @@
   "main": "index.js",
   "scripts": {
     "test": "vitest",
-    "test:run": "vitest run"
+    "test:run": "vitest run",
+    "dev": "tsx src/interfaces/http/server.ts"
   },
   "keywords": [],
   "author": "",
   "license": "ISC",
   "packageManager": "pnpm@10.28.2",
   "devDependencies": {
+    "@tfm/contracts": "workspace:*",
     "@types/node": "^25.2.0",
+    "tsx": "^4.21.0",
     "typescript": "^5.9.3",
-    "vitest": "^4.0.18",
-    "@tfm/contracts": "workspace:*"
+    "vitest": "^4.0.18"
+  },
+  "dependencies": {
+    "fastify": "^5.7.4"
   }
 }

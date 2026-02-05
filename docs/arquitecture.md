@@ -104,3 +104,17 @@ Next steps:
 ## 9. Notes and tradeoffs
 - Expiration modeling is currently simplified (one expiration date per ingredient). In future, support batches/lots.
 - IDs are currently represented as strings in domain; stricter ID types can be introduced later.
+
+## 10. Interfaces layer (HTTP) – Current state
+A minimal HTTP interface is implemented using **Fastify** to expose application use cases without introducing a full framework yet.
+
+Implemented endpoint:
+- `POST /inventory/update`
+  - Validates input using `packages/contracts` (Zod schemas)
+  - Maps contract DTOs -> application input
+  - Executes `UpdateInventoryUseCase`
+  - Maps application output -> contract response
+  - Validates response shape with contracts (extra safety)
+
+This provides an end-to-end vertical slice:
+HTTP -> Contracts -> Mapper -> Use Case -> Domain -> In-memory Repository
