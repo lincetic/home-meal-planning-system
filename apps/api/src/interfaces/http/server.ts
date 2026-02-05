@@ -7,12 +7,26 @@ import {
 import { UpdateInventoryUseCase } from "../../application/use-cases/update-inventory/update-inventory.usecase";
 import { InMemoryInventoryRepository } from "../../infrastructure/persistence/in-memory/in-memory-inventory-repository";
 import { toUpdateInventoryInput, toUpdateInventoryResponse } from "../mappers/update-inventory.mapper";
+import { InMemoryRecipeRepository } from "../../infrastructure/persistence/in-memory/in-memory-recipe-repository";
+import { GenerateDailySuggestionUseCase } from "../../application/use-cases/generate-daily-suggestion/generate-daily-suggestion.usecase";
+import {
+    toGenerateDailySuggestionInput,
+    toGenerateDailySuggestionResponse,
+} from "../mappers/daily-suggestion.mapper";
+
+import {
+    zGenerateDailySuggestionRequest,
+    zGenerateDailySuggestionResponse,
+} from "@tfm/contracts";
 
 const app = Fastify({ logger: true });
 
 // Manual DI (por ahora)
 const inventoryRepo = new InMemoryInventoryRepository();
 const updateInventoryUC = new UpdateInventoryUseCase(inventoryRepo);
+const recipeRepo = new InMemoryRecipeRepository();
+const generateSuggestionUC = new GenerateDailySuggestionUseCase(inventoryRepo, recipeRepo);
+
 
 app.post("/inventory/update", async (request, reply) => {
     // 1) Validación runtime con contracts
@@ -42,6 +56,29 @@ app.post("/inventory/update", async (request, reply) => {
 
     return reply.status(200).send(parsedRes.data);
 });
+
+app.post("/suggestions/generate", async (request, reply) => {
+    const parsedReq = zGenerateDailySuggestionRequest.safeParse(request.body);
+    if (!parsedReq.success) {
+        return reply.status(400).send({
+            error: "Invalid request",
+            details: parsedReq.error.flatten(),
+        });
+    }
+
+    const input = toGenerateDailySuggestionInput(parsedReq.data);
+    const out = await generateSuggestionUC.execute(input);
+    const response = toGenerateDailySuggestionResponse(out);
+
+    const parsedRes = zGenerateDailySuggestionResponse.safeParse(response);
+    if (!parsedRes.success) {
+        request.log.error(parsedRes.error, "Invalid response shape");
+        return reply.status(500).send({ error: "Invalid response shape" });
+    }
+
+    return reply.status(200).send(parsedRes.data);
+});
+
 
 async function start() {
     await app.listen({ port: 3000, host: "127.0.0.1" });

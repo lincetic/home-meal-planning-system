@@ -110,11 +110,17 @@ A minimal HTTP interface is implemented using **Fastify** to expose application 
 
 Implemented endpoint:
 - `POST /inventory/update`
+- `POST /inventory/update`
+- `POST /suggestions/generate`
   - Validates input using `packages/contracts` (Zod schemas)
   - Maps contract DTOs -> application input
   - Executes `UpdateInventoryUseCase`
   - Maps application output -> contract response
   - Validates response shape with contracts (extra safety)
+
+Implemented use cases:
+- `UpdateInventoryUseCase`
+- `GenerateDailySuggestionUseCase`
 
 This provides an end-to-end vertical slice:
 HTTP -> Contracts -> Mapper -> Use Case -> Domain -> In-memory Repository

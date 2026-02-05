@@ -44,3 +44,48 @@ Invoke-RestMethod -Method Post -Uri http://127.0.0.1:3000/inventory/update -Cont
 ## Notes
 - Request is validated using shared contracts (packages/contracts)
 - Inventory is stored in-memory (no persistence yet)
+
+## POST /suggestions/generate
+
+Generates a daily meal suggestion based on current inventory and available recipes.
+
+### Request (PowerShell)
+
+```bash
+$body = @{
+  householdId = "550e8400-e29b-41d4-a716-446655440000"
+  date = "2026-02-03"
+  slot = "CENA"
+  maxSuggestions = 3
+  expiringDaysThreshold = 3
+} | ConvertTo-Json -Depth 5
+
+Invoke-RestMethod `
+  -Method Post `
+  -Uri http://127.0.0.1:3000/suggestions/generate `
+  -ContentType "application/json" `
+  -Body $body
+```
+
+## Response (200 OK)
+```json
+{
+  "householdId": "550e8400-e29b-41d4-a716-446655440000",
+  "date": "2026-02-03",
+  "slot": "CENA",
+  "status": "PROPUESTA",
+  "recipes": [
+    { "recipeId": "r3", "name": "Milk & Cereal" },
+    { "recipeId": "r2", "name": "Rice Bowl" }
+  ],
+  "reasoning": {
+    "usedExpiringIngredients": ["milk"],
+    "totalCandidateRecipes": 3
+  }
+}
+```
+
+## Notes
+- Uses GenerateDailySuggestionUseCase (rules-based)
+- Prioritizes recipes that use ingredients expiring soon
+- Uses in-memory inventory + in-memory recipes (no DB yet)
