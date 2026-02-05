@@ -19,6 +19,18 @@ import {
     zGenerateDailySuggestionResponse,
 } from "@tfm/contracts";
 
+import {
+  zGenerateShoppingListRequest,
+  zGenerateShoppingListResponse,
+} from "@tfm/contracts";
+
+import { GenerateShoppingListUseCase } from "../../application/use-cases/generate-shopping-list/generate-shopping-list.usecase";
+import {
+  toGenerateShoppingListInput,
+  toGenerateShoppingListResponse,
+} from "../mappers/shopping-list.mapper";
+
+
 const app = Fastify({ logger: true });
 
 // Manual DI (por ahora)
@@ -26,6 +38,7 @@ const inventoryRepo = new InMemoryInventoryRepository();
 const updateInventoryUC = new UpdateInventoryUseCase(inventoryRepo);
 const recipeRepo = new InMemoryRecipeRepository();
 const generateSuggestionUC = new GenerateDailySuggestionUseCase(inventoryRepo, recipeRepo);
+const generateShoppingListUC = new GenerateShoppingListUseCase(inventoryRepo);
 
 
 app.post("/inventory/update", async (request, reply) => {
@@ -79,6 +92,27 @@ app.post("/suggestions/generate", async (request, reply) => {
     return reply.status(200).send(parsedRes.data);
 });
 
+app.post("/shopping-list/generate", async (request, reply) => {
+  const parsedReq = zGenerateShoppingListRequest.safeParse(request.body);
+  if (!parsedReq.success) {
+    return reply.status(400).send({
+      error: "Invalid request",
+      details: parsedReq.error.flatten(),
+    });
+  }
+
+  const input = toGenerateShoppingListInput(parsedReq.data);
+  const out = await generateShoppingListUC.execute(input);
+  const response = toGenerateShoppingListResponse(out);
+
+  const parsedRes = zGenerateShoppingListResponse.safeParse(response);
+  if (!parsedRes.success) {
+    request.log.error(parsedRes.error, "Invalid response shape");
+    return reply.status(500).send({ error: "Invalid response shape" });
+  }
+
+  return reply.status(200).send(parsedRes.data);
+});
 
 async function start() {
     await app.listen({ port: 3000, host: "127.0.0.1" });

@@ -53,19 +53,23 @@ Invoke-RestMethod -Method Post -Uri http://127.0.0.1:3000/inventory/update -Cont
 ```
 
 ## d) Estructura del proyecto
-/apps
-  /api        # backend (dominio, tests)
-  /mobile     # app usuario (pendiente)
-  /admin      # panel admin (pendiente)
-/packages
-  /contracts  # contratos compartidos (en preparación)
+```
+apps/
+├── api/        # backend (dominio, tests)
+├── mobile/     # app usuario (pendiente)
+└── admin/      # panel admin (pendiente)
+
+packages/
+└── contracts/  # contratos compartidos (en preparación)
+```
 
 Dentro de **apps/api/src**:
-
+```
 - domain/: entidades y value objects (lógica de negocio)
 - application/: casos de uso (orquestación)
 - infrastructure/: persistencia/servicios externos (futuro)
 - interfaces/: controladores/adaptadores (futuro)
+```
 
 ## e) Funcionalidades principales (MVP)
 
