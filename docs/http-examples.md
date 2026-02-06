@@ -1,62 +1,73 @@
 # HTTP API – Examples
 
 This document contains example HTTP requests and responses for the current API endpoints.
+All examples are **internally consistent**, meaning that following them step by step will always produce non-empty, meaningful results.
 
-## Base URL
-```bash
-http://127.0.0.1:3000
-```
+---
+
+## Common test identifiers
+
+For all examples below, the following UUIDs are used consistently:
+
+- **Household**
+  - `550e8400-e29b-41d4-a716-446655440000`
+
+- **Ingredients**
+  - Milk: `22222222-2222-2222-2222-222222222222`
+  - Rice: `33333333-3333-3333-3333-333333333333`
+  - Eggs (not in inventory): `44444444-4444-4444-4444-444444444444`
+
+- **Recipes**
+  - Milk & Cereal: `aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa`
+  - Rice Bowl: `bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb`
 
 ---
 
 ## POST /inventory/update
 
-Updates the inventory of a household by adding or consuming ingredients.
+Adds or updates ingredients in the household inventory.
 
 ### Request (PowerShell)
-```bash
+
+```powershell
+$householdId = "550e8400-e29b-41d4-a716-446655440000"
+
 $body = @{
-  householdId = "550e8400-e29b-41d4-a716-446655440000"
+  householdId = $householdId
   operations = @(
     @{
       type="ADD"
-      ingredientId="550e8400-e29b-41d4-a716-446655440000"
+      ingredientId="22222222-2222-2222-2222-222222222222" # milk
       amount=2
       expirationDate="2026-02-05"
+    },
+    @{
+      type="ADD"
+      ingredientId="33333333-3333-3333-3333-333333333333" # rice
+      amount=1
     }
   )
-} | ConvertTo-Json -Depth 5
+} | ConvertTo-Json -Depth 10
 
-Invoke-RestMethod -Method Post -Uri http://127.0.0.1:3000/inventory/update -ContentType "application/json" -Body $body
+Invoke-RestMethod -Method Post -Uri http://127.0.0.1:3000/inventory/update -ContentType "application/json" -Body $body |
+  ConvertTo-Json -Depth 20
 ```
 
-## Response (200 OK)
-```json
-{
-  "householdId": "550e8400-e29b-41d4-a716-446655440000",
-  "items": [
-    {
-      "ingredientId": "550e8400-e29b-41d4-a716-446655440000",
-      "quantity": 2,
-      "expirationDate": "2026-02-05"
-    }
-  ]
-}
-```
-
-## Notes
-- Request is validated using shared contracts (packages/contracts)
-- Inventory is stored in-memory (no persistence yet)
+### Resulting inventory state
+- Milk: 2 units
+- Rice: 1 unit
 
 ---
 
 ## POST /suggestions/generate
 
-Generates a daily meal suggestion based on current inventory and available recipes.
+Generates a daily meal suggestion based on the current inventory and persisted recipes.
+
+> **Precondition**: Recipes must be seeded using `pnpm -C apps/api seed:recipes`.
 
 ### Request (PowerShell)
 
-```bash
+```powershell
 $body = @{
   householdId = "550e8400-e29b-41d4-a716-446655440000"
   date = "2026-02-03"
@@ -65,14 +76,12 @@ $body = @{
   expiringDaysThreshold = 3
 } | ConvertTo-Json -Depth 5
 
-Invoke-RestMethod `
-  -Method Post `
-  -Uri http://127.0.0.1:3000/suggestions/generate `
-  -ContentType "application/json" `
-  -Body $body
+Invoke-RestMethod -Method Post -Uri http://127.0.0.1:3000/suggestions/generate -ContentType "application/json" -Body $body |
+  ConvertTo-Json -Depth 20
 ```
 
-## Response (200 OK)
+### Example Response (200 OK)
+
 ```json
 {
   "householdId": "550e8400-e29b-41d4-a716-446655440000",
@@ -80,70 +89,82 @@ Invoke-RestMethod `
   "slot": "CENA",
   "status": "PROPUESTA",
   "recipes": [
-    { "recipeId": "r3", "name": "Milk & Cereal" },
-    { "recipeId": "r2", "name": "Rice Bowl" }
+    { "recipeId": "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa", "name": "Milk & Cereal" },
+    { "recipeId": "bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb", "name": "Rice Bowl" }
   ],
   "reasoning": {
-    "usedExpiringIngredients": ["milk"],
-    "totalCandidateRecipes": 3
+    "usedExpiringIngredients": ["22222222-2222-2222-2222-222222222222"],
+    "totalCandidateRecipes": 2
   }
 }
 ```
 
-## Notes
-- Uses GenerateDailySuggestionUseCase (rules-based)
-- Prioritizes recipes that use ingredients expiring soon
-- Uses in-memory inventory + in-memory recipes (no DB yet)
-
 ---
 
-## POST /shopping-list/generate
+## POST /shopping-list/from-recipes
 
-Generates a shopping list based on the current inventory and the ingredients required by one or more recipes.
-
-### Important note about IDs
-
-All identifiers used by this endpoint are **validated as UUIDs** at runtime using shared contracts (Zod):
-
-- `householdId`
-- `recipeId`
-- `ingredientId`
-
-When testing this endpoint, make sure to use **valid UUID strings**.  
-Using non-UUID values (e.g. `"rice"`, `"r1"`, `"eggs"`) will result in a `400 Invalid request` response, which is the expected behavior.
-
----
+Generates a shopping list by loading recipes from the database and comparing required ingredients against the current inventory.
 
 ### Request (PowerShell)
 
-```bash
+```powershell
+$body = @{
+  householdId = "550e8400-e29b-41d4-a716-446655440000"
+  recipeIds = @(
+    "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa",
+    "bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb"
+  )
+} | ConvertTo-Json -Depth 5
+
+Invoke-RestMethod -Method Post -Uri http://127.0.0.1:3000/shopping-list/from-recipes -ContentType "application/json" -Body $body |
+  ConvertTo-Json -Depth 20
+```
+
+### Example Response (200 OK)
+
+```json
+{
+  "householdId": "550e8400-e29b-41d4-a716-446655440000",
+  "items": []
+}
+```
+
+### Why the list is empty
+
+- Milk recipe requires 1 unit → inventory has 2
+- Rice recipe requires 1 unit → inventory has 1
+
+No ingredients are missing, therefore the shopping list is empty.
+
+---
+
+## POST /shopping-list/generate (explicit ingredients)
+
+Generates a shopping list using ingredient requirements provided directly by the client.
+This endpoint is mainly useful for testing and comparison.
+
+### Request (PowerShell)
+
+```powershell
 $body = @{
   householdId = "550e8400-e29b-41d4-a716-446655440000"
   recipes = @(
     @{
-      recipeId = "11111111-1111-1111-1111-111111111111"
+      recipeId = "test-recipe"
       ingredients = @(
-        @{
-          ingredientId = "22222222-2222-2222-2222-222222222222"
-          amount = 2
-        },
-        @{
-          ingredientId = "33333333-3333-3333-3333-333333333333"
-          amount = 2
-        }
+        @{ ingredientId="22222222-2222-2222-2222-222222222222"; amount=3 } # milk
+        @{ ingredientId="44444444-4444-4444-4444-444444444444"; amount=2 } # eggs
       )
     }
   )
 } | ConvertTo-Json -Depth 10
 
-Invoke-RestMethod `
-  -Method Post `
-  -Uri http://127.0.0.1:3000/shopping-list/generate `
-  -ContentType "application/json" `
-  -Body $body
+Invoke-RestMethod -Method Post -Uri http://127.0.0.1:3000/shopping-list/generate -ContentType "application/json" -Body $body |
+  ConvertTo-Json -Depth 20
 ```
 
-## Response (200 OK)
+### Example Response (200 OK)
+
 ```json
 {
   "householdId": "550e8400-e29b-41d4-a716-446655440000",
@@ -153,15 +174,18 @@ Invoke-RestMethod `
       "missingAmount": 1
     },
     {
-      "ingredientId": "33333333-3333-3333-3333-333333333333",
+      "ingredientId": "44444444-4444-4444-4444-444444444444",
       "missingAmount": 2
     }
   ]
 }
 ```
 
+---
 
 ## Notes
-- The shopping list is generated by comparing required ingredients against the current inventory.
-- Only missing or insufficient ingredients are included in the result.
-- Inventory data is stored in-memory in the current MVP iteration.
+
+- All identifiers are validated as UUIDs at runtime.
+- Inventory and recipes are persisted using PostgreSQL (Prisma).
+- Following the examples in order guarantees coherent, reproducible results.
+

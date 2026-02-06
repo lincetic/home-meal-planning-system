@@ -3,3 +3,4 @@ export * from "./common/enums";
 export * from "./meal/update-inventory";
 export * from "./meal/daily-suggestion";
 export * from "./meal/shopping-list";
+export * from "./meal/shopping-list-from-recipes";
