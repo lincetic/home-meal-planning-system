@@ -230,3 +230,45 @@ Invoke-RestMethod -Method Post -Uri http://127.0.0.1:3000/suggestions/accept -Co
 
 ---
 
+## POST /suggestions/modify
+
+Replaces the recipe selection for an existing suggestion and sets its status to `MODIFICADA`.
+Inventory is **not** consumed on modification (only on acceptance).
+
+### Flow
+1) `POST /suggestions/generate` → get `suggestionId`
+2) `POST /suggestions/modify` → choose different `recipeIds`
+3) `GET /suggestions/daily?...` → status should be `MODIFICADA`
+
+### Request (PowerShell)
+
+```powershell
+$body = @{
+  suggestionId = "<PASTE_SUGGESTION_ID_HERE>"
+  recipeIds = @(
+    "bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb"
+  )
+} | ConvertTo-Json -Depth 5
+
+Invoke-RestMethod -Method Post -Uri http://127.0.0.1:3000/suggestions/modify -ContentType "application/json" -Body $body |
+  ConvertTo-Json -Depth 20
+```
+
+### Example Response (200 OK)
+
+```json
+{
+  "suggestionId": "xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx",
+  "status": "MODIFICADA"
+}
+```
+
+---
+
+## Notes
+
+- If the suggestion is already accepted, the API returns 409 Conflict.
+- If any recipeId does not exist for the household, the API returns 400 Bad Request.
+
+---
+

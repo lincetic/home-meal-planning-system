@@ -61,6 +61,8 @@ import { zGetDailySuggestionQuery } from "@tfm/contracts";
 import { zAcceptSuggestionRequest, zAcceptSuggestionResponse } from "@tfm/contracts";
 import { AcceptSuggestionUseCase } from "../../application/use-cases/accept-suggestion/accept-suggestion.usecase";
 
+import { zModifySuggestionRequest, zModifySuggestionResponse } from "@tfm/contracts";
+import { ModifySuggestionUseCase } from "../../application/use-cases/modify-suggestion/modify-suggestion.usecase";
 
 const app = Fastify({ logger: true });
 
@@ -89,6 +91,8 @@ const acceptSuggestionUC = new AcceptSuggestionUseCase(
     inventoryRepo,
     recipeRepo
 );
+
+const modifySuggestionUC = new ModifySuggestionUseCase(suggestionRepo, recipeRepo);
 
 
 app.post("/inventory/update", async (request, reply) => {
@@ -221,6 +225,37 @@ app.post("/suggestions/accept", async (request, reply) => {
     }
 });
 
+app.post("/suggestions/modify", async (request, reply) => {
+    const parsedReq = zModifySuggestionRequest.safeParse(request.body);
+    if (!parsedReq.success) {
+        return reply.status(400).send({
+            error: "Invalid request",
+            details: parsedReq.error.flatten(),
+        });
+    }
+
+    try {
+        const out = await modifySuggestionUC.execute({
+            suggestionId: parsedReq.data.suggestionId,
+            recipeIds: parsedReq.data.recipeIds,
+        });
+
+        const parsedRes = zModifySuggestionResponse.safeParse(out);
+        if (!parsedRes.success) {
+            return reply.status(500).send({ error: "Invalid response shape" });
+        }
+
+        return reply.status(200).send(parsedRes.data);
+    } catch (e: any) {
+        const msg = String(e?.message ?? "Unexpected error");
+
+        if (msg.includes("not found")) return reply.status(404).send({ error: msg });
+        if (msg.includes("already accepted")) return reply.status(409).send({ error: msg });
+        if (msg.includes("Some recipes")) return reply.status(400).send({ error: msg });
+
+        return reply.status(500).send({ error: "Unexpected error" });
+    }
+});
 
 async function start() {
     await app.listen({ port: 3000, host: "127.0.0.1" });

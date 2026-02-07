@@ -106,6 +106,11 @@ The domain layer has **no knowledge of persistence, HTTP, or frameworks**.
   - Consume each recipe ingredient
   - Persist inventory + set status accepted
 
+- **ModifySuggestionUseCase**
+  - Load suggestion + recipes
+  - Ensure all recipeIds exist
+  - Persist: overwrite recipes + set status MODIFICADA
+
 All use cases are covered by unit tests.
 
 ---
@@ -173,6 +178,7 @@ The database schema is intentionally **not a 1:1 mirror** of the domain model.
 - `POST /shopping-list/generate`
 - `POST /shopping-list/from-recipes`
 - `POST /suggestions/accept`
+- `POST /suggestions/modify`
 
 ---
 
