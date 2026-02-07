@@ -43,13 +43,30 @@ import {
     toGenerateShoppingListFromRecipesResponse,
 } from "../mappers/shopping-list-from-recipes.mapper";
 
+import {
+    zGenerateDailySuggestionPersistedRequest,
+    zGenerateDailySuggestionPersistedResponse,
+} from "@tfm/contracts";
+
+import { PrismaSuggestionRepository } from "../../infrastructure/persistence/prisma/prisma-suggestion-repository";
+import { GenerateAndStoreDailySuggestionUseCase } from "../../application/use-cases/generate-and-store-daily-suggestion/generate-and-store-daily-suggestion.usecase";
+
+import {
+    toGenerateDailySuggestionInput as toGenerateDailySuggestionPersistedInput,
+    toPersistedSuggestionResponse,
+} from "../mappers/daily-suggestion-persisted.mapper";
+
+import { zGetDailySuggestionQuery } from "@tfm/contracts";
+
+import { zAcceptSuggestionRequest, zAcceptSuggestionResponse } from "@tfm/contracts";
+import { AcceptSuggestionUseCase } from "../../application/use-cases/accept-suggestion/accept-suggestion.usecase";
+
 
 const app = Fastify({ logger: true });
 
 // Manual DI (por ahora)
 // const inventoryRepo = new InMemoryInventoryRepository(); //Dejamos de momento el inmemory
 const inventoryRepo = new PrismaInventoryRepository();
-
 const updateInventoryUC = new UpdateInventoryUseCase(inventoryRepo);
 
 // const recipeRepo = new InMemoryRecipeRepository();
@@ -60,6 +77,18 @@ const generateSuggestionUC = new GenerateDailySuggestionUseCase(inventoryRepo, r
 const generateShoppingListUC = new GenerateShoppingListUseCase(inventoryRepo);
 const generateShoppingListFromRecipesUC = new GenerateShoppingListFromRecipesUseCase(inventoryRepo, recipeRepo);
 
+const suggestionRepo = new PrismaSuggestionRepository();
+
+const generateAndStoreSuggestionUC = new GenerateAndStoreDailySuggestionUseCase(
+    generateSuggestionUC,
+    suggestionRepo
+);
+
+const acceptSuggestionUC = new AcceptSuggestionUseCase(
+    suggestionRepo,
+    inventoryRepo,
+    recipeRepo
+);
 
 
 app.post("/inventory/update", async (request, reply) => {
@@ -92,7 +121,7 @@ app.post("/inventory/update", async (request, reply) => {
 });
 
 app.post("/suggestions/generate", async (request, reply) => {
-    const parsedReq = zGenerateDailySuggestionRequest.safeParse(request.body);
+    const parsedReq = zGenerateDailySuggestionPersistedRequest.safeParse(request.body);
     if (!parsedReq.success) {
         return reply.status(400).send({
             error: "Invalid request",
@@ -100,11 +129,11 @@ app.post("/suggestions/generate", async (request, reply) => {
         });
     }
 
-    const input = toGenerateDailySuggestionInput(parsedReq.data);
-    const out = await generateSuggestionUC.execute(input);
-    const response = toGenerateDailySuggestionResponse(out);
+    const input = toGenerateDailySuggestionPersistedInput(parsedReq.data);
+    const persisted = await generateAndStoreSuggestionUC.execute(input);
+    const response = toPersistedSuggestionResponse(persisted);
 
-    const parsedRes = zGenerateDailySuggestionResponse.safeParse(response);
+    const parsedRes = zGenerateDailySuggestionPersistedResponse.safeParse(response);
     if (!parsedRes.success) {
         request.log.error(parsedRes.error, "Invalid response shape");
         return reply.status(500).send({ error: "Invalid response shape" });
@@ -112,6 +141,7 @@ app.post("/suggestions/generate", async (request, reply) => {
 
     return reply.status(200).send(parsedRes.data);
 });
+
 
 app.post("/shopping-list/generate", async (request, reply) => {
     const parsedReq = zGenerateShoppingListRequest.safeParse(request.body);
@@ -155,6 +185,40 @@ app.post("/shopping-list/from-recipes", async (request, reply) => {
     }
 
     return reply.status(200).send(parsedRes.data);
+});
+
+app.get("/suggestions/daily", async (request, reply) => {
+    const parsed = zGetDailySuggestionQuery.safeParse(request.query);
+    if (!parsed.success) {
+        return reply.status(400).send({ error: "Invalid query", details: parsed.error.flatten() });
+    }
+
+    const { householdId, date, slot } = parsed.data;
+
+    const found = await suggestionRepo.getDailySuggestion(householdId, date, slot);
+    if (!found) return reply.status(404).send({ error: "Suggestion not found" });
+
+    return reply.status(200).send(toPersistedSuggestionResponse(found));
+});
+
+app.post("/suggestions/accept", async (request, reply) => {
+    const parsedReq = zAcceptSuggestionRequest.safeParse(request.body);
+    if (!parsedReq.success) {
+        return reply.status(400).send({ error: "Invalid request", details: parsedReq.error.flatten() });
+    }
+
+    try {
+        const out = await acceptSuggestionUC.execute({ suggestionId: parsedReq.data.suggestionId });
+        const parsedRes = zAcceptSuggestionResponse.safeParse(out);
+        if (!parsedRes.success) return reply.status(500).send({ error: "Invalid response shape" });
+        return reply.status(200).send(parsedRes.data);
+    } catch (e: any) {
+        // MVP error mapping (improve later)
+        if (String(e?.message).includes("not found")) return reply.status(404).send({ error: e.message });
+        if (String(e?.message).includes("negative") || String(e?.message).includes("insufficient"))
+            return reply.status(409).send({ error: e.message });
+        return reply.status(500).send({ error: "Unexpected error" });
+    }
 });
 
 

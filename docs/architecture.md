@@ -101,6 +101,11 @@ The domain layer has **no knowledge of persistence, HTTP, or frameworks**.
   - Aggregates ingredient requirements
   - Compares against inventory to determine missing items
 
+- **AcceptSuggestionUseCase**
+  - Load suggestion + inventory + recipes 
+  - Consume each recipe ingredient
+  - Persist inventory + set status accepted
+
 All use cases are covered by unit tests.
 
 ---
@@ -167,6 +172,7 @@ The database schema is intentionally **not a 1:1 mirror** of the domain model.
 - `POST /suggestions/generate`
 - `POST /shopping-list/generate`
 - `POST /shopping-list/from-recipes`
+- `POST /suggestions/accept`
 
 ---
 

@@ -14,10 +14,11 @@ datasource db {
 }
 
 model Household {
-  id        String          @id
-  createdAt DateTime        @default(now())
-  items     InventoryItem[]
-  recipes   Recipe[]
+  id          String           @id
+  createdAt   DateTime         @default(now())
+  items       InventoryItem[]
+  recipes     Recipe[]
+  suggestions MealSuggestion[]
 }
 
 model InventoryItem {
@@ -52,4 +53,38 @@ model RecipeIngredient {
   recipe Recipe @relation(fields: [recipeId], references: [id])
 
   @@index([recipeId])
+}
+
+enum SuggestionStatus {
+  PROPUESTA
+  ACEPTADA
+  MODIFICADA
+}
+
+model MealSuggestion {
+  id          String           @id @default(uuid())
+  householdId String
+  date        DateTime
+  slot        String
+  status      SuggestionStatus @default(PROPUESTA)
+  createdAt   DateTime         @default(now())
+  updatedAt   DateTime         @updatedAt
+
+  household Household              @relation(fields: [householdId], references: [id])
+  recipes   MealSuggestionRecipe[]
+
+  @@unique([householdId, date, slot])
+  @@index([householdId, date])
+}
+
+model MealSuggestionRecipe {
+  id           String @id @default(uuid())
+  suggestionId String
+  recipeId     String
+  recipeName   String
+  position     Int
+
+  suggestion MealSuggestion @relation(fields: [suggestionId], references: [id])
+
+  @@index([suggestionId])
 }

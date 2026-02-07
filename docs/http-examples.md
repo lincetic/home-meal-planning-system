@@ -189,3 +189,44 @@ Invoke-RestMethod -Method Post -Uri http://127.0.0.1:3000/shopping-list/generate
 - Inventory and recipes are persisted using PostgreSQL (Prisma).
 - Following the examples in order guarantees coherent, reproducible results.
 
+---
+
+## POST /suggestions/accept
+
+Accepts a persisted daily suggestion and updates its status to `ACEPTADA`.
+On acceptance, the system **consumes inventory** according to the ingredients required by the suggested recipes.
+
+### Flow (recommended)
+1) `POST /suggestions/generate` → get `suggestionId`
+2) `POST /suggestions/accept` using that `suggestionId`
+3) `GET /suggestions/daily?...` → status should be `ACEPTADA`
+
+### Request (PowerShell)
+
+```powershell
+$body = @{
+  suggestionId = "<PASTE_SUGGESTION_ID_HERE>"
+} | ConvertTo-Json -Depth 3
+
+Invoke-RestMethod -Method Post -Uri http://127.0.0.1:3000/suggestions/accept -ContentType "application/json" -Body $body |
+  ConvertTo-Json -Depth 20
+```
+
+### Example Response (200 OK)
+
+```json
+{
+  "suggestionId": "xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx",
+  "status": "ACEPTADA"
+}
+```
+
+---
+
+## Notes
+
+- If inventory is insufficient, the API may return 409 Conflict.
+- Accepting an already accepted suggestion is idempotent and returns ACEPTADA.
+
+---
+
