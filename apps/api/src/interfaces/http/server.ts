@@ -64,6 +64,14 @@ import { AcceptSuggestionUseCase } from "../../application/use-cases/accept-sugg
 import { zModifySuggestionRequest, zModifySuggestionResponse } from "@tfm/contracts";
 import { ModifySuggestionUseCase } from "../../application/use-cases/modify-suggestion/modify-suggestion.usecase";
 
+import {
+    zSearchIngredientsQuery,
+    zSearchIngredientsResponse,
+    zCreateIngredientRequest,
+    zCreateIngredientResponse,
+} from "@tfm/contracts";
+import { prisma } from "../../infrastructure/persistence/prisma/prisma-client";
+
 const app = Fastify({ logger: true });
 
 // Manual DI (por ahora)
@@ -256,6 +264,76 @@ app.post("/suggestions/modify", async (request, reply) => {
         return reply.status(500).send({ error: "Unexpected error" });
     }
 });
+
+app.get("/ingredients/search", async (request, reply) => {
+    const parsed = zSearchIngredientsQuery.safeParse(request.query);
+    if (!parsed.success) {
+        return reply.status(400).send({ error: "Invalid query", details: parsed.error.flatten() });
+    }
+
+    const q = parsed.data.q;
+    const limit = parsed.data.limit ?? 10;
+
+    // Simple search: by normalizedName contains normalized query
+    const norm = q
+        .trim()
+        .toLowerCase()
+        .normalize("NFD")
+        .replace(/[\u0300-\u036f]/g, "")
+        .replace(/\s+/g, " ");
+
+    const items = await prisma.ingredient.findMany({
+        where: { normalizedName: { contains: norm } },
+        take: limit,
+        orderBy: { normalizedName: "asc" },
+        select: { id: true, name: true, category: true },
+    });
+
+    const res = { items };
+    const ok = zSearchIngredientsResponse.safeParse(res);
+    if (!ok.success) return reply.status(500).send({ error: "Invalid response shape" });
+
+    return reply.send(res);
+});
+
+app.post("/ingredients", async (request, reply) => {
+    const parsed = zCreateIngredientRequest.safeParse(request.body);
+    if (!parsed.success) {
+        return reply.status(400).send({ error: "Invalid request", details: parsed.error.flatten() });
+    }
+
+    const name = parsed.data.name.trim();
+    const normalizedName = name
+        .toLowerCase()
+        .normalize("NFD")
+        .replace(/[\u0300-\u036f]/g, "")
+        .replace(/\s+/g, " ");
+
+    const existing = await prisma.ingredient.findUnique({
+        where: { normalizedName },
+        select: { id: true, name: true, category: true },
+    });
+    if (existing) {
+        const ok = zCreateIngredientResponse.safeParse(existing);
+        if (!ok.success) return reply.status(500).send({ error: "Invalid response shape" });
+        return reply.status(200).send(existing);
+    }
+
+    const created = await prisma.ingredient.create({
+        data: {
+            name,
+            normalizedName,
+            category: parsed.data.category ?? null,
+        },
+        select: { id: true, name: true, category: true },
+    });
+
+    const ok = zCreateIngredientResponse.safeParse(created);
+    if (!ok.success) return reply.status(500).send({ error: "Invalid response shape" });
+
+    return reply.status(201).send(created);
+});
+
 
 async function start() {
     await app.listen({ port: 3000, host: "127.0.0.1" });

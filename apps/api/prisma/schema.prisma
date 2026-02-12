@@ -28,9 +28,12 @@ model InventoryItem {
   quantity       Float
   expirationDate DateTime?
 
-  household Household @relation(fields: [householdId], references: [id])
+  household  Household  @relation(fields: [householdId], references: [id])
+  ingredient Ingredient @relation(fields: [ingredientId], references: [id])
 
   @@unique([householdId, ingredientId])
+  @@index([householdId])
+  @@index([ingredientId])
 }
 
 model Recipe {
@@ -50,9 +53,11 @@ model RecipeIngredient {
   ingredientId String
   amount       Float
 
-  recipe Recipe @relation(fields: [recipeId], references: [id])
+  recipe     Recipe     @relation(fields: [recipeId], references: [id])
+  ingredient Ingredient @relation(fields: [ingredientId], references: [id])
 
   @@index([recipeId])
+  @@index([ingredientId])
 }
 
 enum SuggestionStatus {
@@ -87,4 +92,19 @@ model MealSuggestionRecipe {
   suggestion MealSuggestion @relation(fields: [suggestionId], references: [id])
 
   @@index([suggestionId])
+}
+
+model Ingredient {
+  id             String   @id @default(uuid())
+  name           String
+  normalizedName String
+  category       String? // opcional
+  createdAt      DateTime @default(now())
+
+  // reverse relations
+  inventoryItems    InventoryItem[]
+  recipeIngredients RecipeIngredient[]
+
+  @@unique([normalizedName])
+  @@index([normalizedName])
 }

@@ -1,73 +1,101 @@
-# HTTP API – Examples
+# HTTP API -- Examples
 
-This document contains example HTTP requests and responses for the current API endpoints.
-All examples are **internally consistent**, meaning that following them step by step will always produce non-empty, meaningful results.
+This document contains example HTTP requests and responses for the
+current API endpoints.\
+All examples are **internally consistent**, meaning that following them
+step by step will always produce non-empty, meaningful results.
 
----
+> ⚠️ Ingredient IDs are NOT hardcoded anymore.\
+> They must be obtained from the catalog using `/ingredients/search`.
 
-## Common test identifiers
+------------------------------------------------------------------------
 
-For all examples below, the following UUIDs are used consistently:
+# 0️⃣ Precondition (important)
 
-- **Household**
-  - `550e8400-e29b-41d4-a716-446655440000`
+Before running these examples:
 
-- **Ingredients**
-  - Milk: `22222222-2222-2222-2222-222222222222`
-  - Rice: `33333333-3333-3333-3333-333333333333`
-  - Eggs (not in inventory): `44444444-4444-4444-4444-444444444444`
+``` bash
+pnpm -C apps/api seed:ingredients
+pnpm -C apps/api seed:recipes
+```
 
-- **Recipes**
-  - Milk & Cereal: `aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa`
-  - Rice Bowl: `bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb`
+Household used in all examples:
 
----
+    550e8400-e29b-41d4-a716-446655440000
 
-## POST /inventory/update
+Recipes (fixed IDs from seed):
 
-Adds or updates ingredients in the household inventory.
+-   Milk & Cereal → `aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa`
+-   Rice Bowl → `bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb`
 
-### Request (PowerShell)
+------------------------------------------------------------------------
 
-```powershell
+# 1️⃣ Find Ingredient IDs from Catalog
+
+## Search Milk
+
+``` powershell
+Invoke-RestMethod -Method Get -Uri "http://127.0.0.1:3000/ingredients/search?q=leche&limit=5" |
+  ConvertTo-Json -Depth 20
+```
+
+Copy the returned `id`.
+
+------------------------------------------------------------------------
+
+## Search Rice
+
+``` powershell
+Invoke-RestMethod -Method Get -Uri "http://127.0.0.1:3000/ingredients/search?q=arroz&limit=5" |
+  ConvertTo-Json -Depth 20
+```
+
+Copy the returned `id`.
+
+------------------------------------------------------------------------
+
+# 2️⃣ POST /inventory/update
+
+Adds ingredients to inventory using real catalog IDs.
+
+``` powershell
 $householdId = "550e8400-e29b-41d4-a716-446655440000"
+$milkId = "<PASTE_MILK_ID>"
+$riceId = "<PASTE_RICE_ID>"
 
 $body = @{
   householdId = $householdId
   operations = @(
     @{
       type="ADD"
-      ingredientId="22222222-2222-2222-2222-222222222222" # milk
+      ingredientId=$milkId
       amount=2
       expirationDate="2026-02-05"
     },
     @{
       type="ADD"
-      ingredientId="33333333-3333-3333-3333-333333333333" # rice
+      ingredientId=$riceId
       amount=1
     }
   )
 } | ConvertTo-Json -Depth 10
 
-Invoke-RestMethod -Method Post -Uri http://127.0.0.1:3000/inventory/update -ContentType "application/json" -Body $body |
+Invoke-RestMethod -Method Post `
+  -Uri http://127.0.0.1:3000/inventory/update `
+  -ContentType "application/json" `
+  -Body $body |
   ConvertTo-Json -Depth 20
 ```
 
-### Resulting inventory state
-- Milk: 2 units
-- Rice: 1 unit
+Resulting inventory: - Milk: 2 - Rice: 1
 
----
+------------------------------------------------------------------------
 
-## POST /suggestions/generate
+# 3️⃣ POST /suggestions/generate
 
-Generates a daily meal suggestion based on the current inventory and persisted recipes.
+Generates and persists a daily suggestion.
 
-> **Precondition**: Recipes must be seeded using `pnpm -C apps/api seed:recipes`.
-
-### Request (PowerShell)
-
-```powershell
+``` powershell
 $body = @{
   householdId = "550e8400-e29b-41d4-a716-446655440000"
   date = "2026-02-03"
@@ -76,38 +104,72 @@ $body = @{
   expiringDaysThreshold = 3
 } | ConvertTo-Json -Depth 5
 
-Invoke-RestMethod -Method Post -Uri http://127.0.0.1:3000/suggestions/generate -ContentType "application/json" -Body $body |
+$response = Invoke-RestMethod `
+  -Method Post `
+  -Uri http://127.0.0.1:3000/suggestions/generate `
+  -ContentType "application/json" `
+  -Body $body
+
+$response | ConvertTo-Json -Depth 20
+```
+
+Save the `suggestionId` returned.
+
+------------------------------------------------------------------------
+
+# 4️⃣ GET /suggestions/daily
+
+``` powershell
+Invoke-RestMethod `
+  -Method Get `
+  -Uri "http://127.0.0.1:3000/suggestions/daily?householdId=550e8400-e29b-41d4-a716-446655440000&date=2026-02-03&slot=CENA" |
   ConvertTo-Json -Depth 20
 ```
 
-### Example Response (200 OK)
+Status should be `PROPUESTA`.
 
-```json
-{
-  "householdId": "550e8400-e29b-41d4-a716-446655440000",
-  "date": "2026-02-03",
-  "slot": "CENA",
-  "status": "PROPUESTA",
-  "recipes": [
-    { "recipeId": "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa", "name": "Milk & Cereal" },
-    { "recipeId": "bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb", "name": "Rice Bowl" }
-  ],
-  "reasoning": {
-    "usedExpiringIngredients": ["22222222-2222-2222-2222-222222222222"],
-    "totalCandidateRecipes": 2
-  }
-}
+------------------------------------------------------------------------
+
+# 5️⃣ POST /suggestions/modify
+
+``` powershell
+$body = @{
+  suggestionId = "<PASTE_SUGGESTION_ID>"
+  recipeIds = @(
+    "bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb"
+  )
+} | ConvertTo-Json -Depth 5
+
+Invoke-RestMethod `
+  -Method Post `
+  -Uri http://127.0.0.1:3000/suggestions/modify `
+  -ContentType "application/json" `
+  -Body $body |
+  ConvertTo-Json -Depth 20
 ```
 
----
+------------------------------------------------------------------------
 
-## POST /shopping-list/from-recipes
+# 6️⃣ POST /suggestions/accept
 
-Generates a shopping list by loading recipes from the database and comparing required ingredients against the current inventory.
+``` powershell
+$body = @{
+  suggestionId = "<PASTE_SUGGESTION_ID>"
+} | ConvertTo-Json -Depth 3
 
-### Request (PowerShell)
+Invoke-RestMethod `
+  -Method Post `
+  -Uri http://127.0.0.1:3000/suggestions/accept `
+  -ContentType "application/json" `
+  -Body $body |
+  ConvertTo-Json -Depth 20
+```
 
-```powershell
+------------------------------------------------------------------------
+
+# 7️⃣ POST /shopping-list/from-recipes
+
+``` powershell
 $body = @{
   householdId = "550e8400-e29b-41d4-a716-446655440000"
   recipeIds = @(
@@ -116,159 +178,20 @@ $body = @{
   )
 } | ConvertTo-Json -Depth 5
 
-Invoke-RestMethod -Method Post -Uri http://127.0.0.1:3000/shopping-list/from-recipes -ContentType "application/json" -Body $body |
+Invoke-RestMethod `
+  -Method Post `
+  -Uri http://127.0.0.1:3000/shopping-list/from-recipes `
+  -ContentType "application/json" `
+  -Body $body |
   ConvertTo-Json -Depth 20
 ```
 
-### Example Response (200 OK)
+------------------------------------------------------------------------
 
-```json
-{
-  "householdId": "550e8400-e29b-41d4-a716-446655440000",
-  "items": []
-}
-```
+# Notes
 
-### Why the list is empty
-
-- Milk recipe requires 1 unit → inventory has 2
-- Rice recipe requires 1 unit → inventory has 1
-
-No ingredients are missing, therefore the shopping list is empty.
-
----
-
-## POST /shopping-list/generate (explicit ingredients)
-
-Generates a shopping list using ingredient requirements provided directly by the client.
-This endpoint is mainly useful for testing and comparison.
-
-### Request (PowerShell)
-
-```powershell
-$body = @{
-  householdId = "550e8400-e29b-41d4-a716-446655440000"
-  recipes = @(
-    @{
-      recipeId = "test-recipe"
-      ingredients = @(
-        @{ ingredientId="22222222-2222-2222-2222-222222222222"; amount=3 } # milk
-        @{ ingredientId="44444444-4444-4444-4444-444444444444"; amount=2 } # eggs
-      )
-    }
-  )
-} | ConvertTo-Json -Depth 10
-
-Invoke-RestMethod -Method Post -Uri http://127.0.0.1:3000/shopping-list/generate -ContentType "application/json" -Body $body |
-  ConvertTo-Json -Depth 20
-```
-
-### Example Response (200 OK)
-
-```json
-{
-  "householdId": "550e8400-e29b-41d4-a716-446655440000",
-  "items": [
-    {
-      "ingredientId": "22222222-2222-2222-2222-222222222222",
-      "missingAmount": 1
-    },
-    {
-      "ingredientId": "44444444-4444-4444-4444-444444444444",
-      "missingAmount": 2
-    }
-  ]
-}
-```
-
----
-
-## Notes
-
-- All identifiers are validated as UUIDs at runtime.
-- Inventory and recipes are persisted using PostgreSQL (Prisma).
-- Following the examples in order guarantees coherent, reproducible results.
-
----
-
-## POST /suggestions/accept
-
-Accepts a persisted daily suggestion and updates its status to `ACEPTADA`.
-On acceptance, the system **consumes inventory** according to the ingredients required by the suggested recipes.
-
-### Flow (recommended)
-1) `POST /suggestions/generate` → get `suggestionId`
-2) `POST /suggestions/accept` using that `suggestionId`
-3) `GET /suggestions/daily?...` → status should be `ACEPTADA`
-
-### Request (PowerShell)
-
-```powershell
-$body = @{
-  suggestionId = "<PASTE_SUGGESTION_ID_HERE>"
-} | ConvertTo-Json -Depth 3
-
-Invoke-RestMethod -Method Post -Uri http://127.0.0.1:3000/suggestions/accept -ContentType "application/json" -Body $body |
-  ConvertTo-Json -Depth 20
-```
-
-### Example Response (200 OK)
-
-```json
-{
-  "suggestionId": "xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx",
-  "status": "ACEPTADA"
-}
-```
-
----
-
-## Notes
-
-- If inventory is insufficient, the API may return 409 Conflict.
-- Accepting an already accepted suggestion is idempotent and returns ACEPTADA.
-
----
-
-## POST /suggestions/modify
-
-Replaces the recipe selection for an existing suggestion and sets its status to `MODIFICADA`.
-Inventory is **not** consumed on modification (only on acceptance).
-
-### Flow
-1) `POST /suggestions/generate` → get `suggestionId`
-2) `POST /suggestions/modify` → choose different `recipeIds`
-3) `GET /suggestions/daily?...` → status should be `MODIFICADA`
-
-### Request (PowerShell)
-
-```powershell
-$body = @{
-  suggestionId = "<PASTE_SUGGESTION_ID_HERE>"
-  recipeIds = @(
-    "bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb"
-  )
-} | ConvertTo-Json -Depth 5
-
-Invoke-RestMethod -Method Post -Uri http://127.0.0.1:3000/suggestions/modify -ContentType "application/json" -Body $body |
-  ConvertTo-Json -Depth 20
-```
-
-### Example Response (200 OK)
-
-```json
-{
-  "suggestionId": "xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx",
-  "status": "MODIFICADA"
-}
-```
-
----
-
-## Notes
-
-- If the suggestion is already accepted, the API returns 409 Conflict.
-- If any recipeId does not exist for the household, the API returns 400 Bad Request.
-
----
-
+-   Ingredient IDs are obtained dynamically from the catalog.
+-   All identifiers are validated as UUIDs.
+-   Inventory and recipes are persisted using PostgreSQL (Prisma).
+-   Accepting a suggestion consumes inventory.
+-   Modifying does NOT consume inventory.
