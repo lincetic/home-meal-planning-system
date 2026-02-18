@@ -14,4 +14,12 @@ describe("Recipe", () => {
     it("falla si no tiene ingredientes", () => {
         expect(() => new Recipe("r1", "X", [])).toThrow();
     });
+
+    it("falla si no tiene id", () => {
+        expect(() => new Recipe("", "X", [{ ingredientId: "rice", amount: Quantity.create(1) }])).toThrow();
+    });
+
+    it("falla si no tiene nombre", () => {
+        expect(() => new Recipe("r1", "", [{ ingredientId: "rice", amount: Quantity.create(1) }])).toThrow();
+    });
 });

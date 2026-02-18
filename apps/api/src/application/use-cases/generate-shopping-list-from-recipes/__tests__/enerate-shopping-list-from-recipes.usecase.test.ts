@@ -51,4 +51,18 @@ describe("GenerateShoppingListFromRecipesUseCase", () => {
             { ingredientId: rice, missingAmount: 1 },
         ]);
     });
+
+    it("falla cuando no hay inventario", async () => {
+        const uc = new GenerateShoppingListFromRecipesUseCase(
+            new FakeInventoryRepo(null),
+            new FakeRecipeRepo([])
+        );
+
+        await expect(
+            uc.execute({
+                householdId: "home-1",
+                recipeIds: [],
+            })
+        ).rejects.toThrow(/inventory not found/i);
+    });
 });

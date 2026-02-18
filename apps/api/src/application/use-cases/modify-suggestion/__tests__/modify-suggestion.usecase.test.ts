@@ -102,4 +102,35 @@ describe("ModifySuggestionUseCase", () => {
             /already accepted/i
         );
     });
+
+    it("fails when suggestion does not exist", async () => {
+        const suggestionRepo = new FakeSuggestionRepo([]);
+        const recipeRepo = new FakeRecipeRepo(new Map([["home-1", []]]));
+        const uc = new ModifySuggestionUseCase(suggestionRepo, recipeRepo);
+
+        await expect(
+            uc.execute({ suggestionId: "missing", recipeIds: ["r1"] })
+        ).rejects.toThrow(/not found/i);
+    });
+
+    it("fails when at least one recipe id is not found", async () => {
+        const householdId = "home-1";
+        const suggestion: PersistedSuggestion = {
+            id: "s3",
+            householdId,
+            date: "2026-02-03",
+            slot: "CENA",
+            status: "PROPUESTA",
+            recipes: [{ recipeId: "r1", name: "Milk & Cereal", position: 0 }],
+        };
+
+        const r1 = new Recipe("r1", "Milk & Cereal", [{ ingredientId: "milk", amount: Quantity.create(1) }]);
+        const suggestionRepo = new FakeSuggestionRepo([suggestion]);
+        const recipeRepo = new FakeRecipeRepo(new Map([[householdId, [r1]]]));
+        const uc = new ModifySuggestionUseCase(suggestionRepo, recipeRepo);
+
+        await expect(
+            uc.execute({ suggestionId: "s3", recipeIds: ["r1", "r2"] })
+        ).rejects.toThrow(/not found/i);
+    });
 });

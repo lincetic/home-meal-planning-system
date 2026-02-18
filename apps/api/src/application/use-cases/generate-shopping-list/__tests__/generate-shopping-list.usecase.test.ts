@@ -5,7 +5,7 @@ import { Quantity } from "../../../../domain/value-objects/quantity";
 import { InventoryRepository } from "../../../ports/inventory-repository";
 
 class FakeInventoryRepo implements InventoryRepository {
-    constructor(private inv: Inventory) { }
+    constructor(private inv: Inventory | null) { }
 
     async getByHouseholdId(): Promise<Inventory | null> {
         return this.inv;
@@ -41,5 +41,41 @@ describe("GenerateShoppingListUseCase", () => {
             { ingredientId: "rice", missingAmount: 1 },
             { ingredientId: "eggs", missingAmount: 2 },
         ]);
+    });
+
+    it("acumula requerimientos de un mismo ingrediente entre recetas", async () => {
+        const inv = new Inventory();
+        inv.addIngredient("rice", Quantity.create(1));
+
+        const repo = new FakeInventoryRepo(inv);
+        const uc = new GenerateShoppingListUseCase(repo);
+
+        const out = await uc.execute({
+            householdId: "home-1",
+            recipes: [
+                {
+                    recipeId: "r1",
+                    ingredients: [{ ingredientId: "rice", amount: 1 }],
+                },
+                {
+                    recipeId: "r2",
+                    ingredients: [{ ingredientId: "rice", amount: 2 }],
+                },
+            ],
+        });
+
+        expect(out.items).toEqual([{ ingredientId: "rice", missingAmount: 2 }]);
+    });
+
+    it("falla si no existe inventario para el hogar", async () => {
+        const repo = new FakeInventoryRepo(null);
+        const uc = new GenerateShoppingListUseCase(repo);
+
+        await expect(
+            uc.execute({
+                householdId: "home-1",
+                recipes: [],
+            })
+        ).rejects.toThrow(/inventory not found/i);
     });
 });

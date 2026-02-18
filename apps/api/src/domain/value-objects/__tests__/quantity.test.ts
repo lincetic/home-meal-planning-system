@@ -28,4 +28,13 @@ describe("Quantity", () => {
         const b = Quantity.create(2);
         expect(() => a.subtract(b)).toThrow();
     });
+
+    it("permite comparar igualdad por valor", () => {
+        const a = Quantity.create(2);
+        const b = Quantity.create(2);
+        const c = Quantity.create(3);
+
+        expect(a.equals(b)).toBe(true);
+        expect(a.equals(c)).toBe(false);
+    });
 });
