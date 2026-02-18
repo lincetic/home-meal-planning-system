@@ -9,3 +9,6 @@ export * from "./meal/get-daily-suggestion";
 export * from "./meal/accept-suggestion";
 export * from "./meal/modify-suggestion";
 export * from "./meal/ingredients";
+export * from "./meal/cooking-plan";
+export * from "./meal/get-inventory";
+export * from "./meal/get-ingredients-by-ids";

@@ -70,7 +70,14 @@ import {
     zCreateIngredientRequest,
     zCreateIngredientResponse,
 } from "@tfm/contracts";
+
+import { zGetCookingPlanRequest, zGetCookingPlanResponse } from "@tfm/contracts";
+import { GetCookingPlanUseCase } from "../../application/use-cases/get-cooking-plan/get-cooking-plan.usecase";
+
+import { zGetInventoryQuery, zGetInventoryResponse } from "@tfm/contracts";
+import { GetInventoryUseCase } from "../../application/use-cases/get-inventory/get-inventory.usecase";
 import { prisma } from "../../infrastructure/persistence/prisma/prisma-client";
+import { zGetIngredientsByIdsQuery, zGetIngredientsByIdsResponse } from "@tfm/contracts";
 
 const app = Fastify({ logger: true });
 
@@ -103,6 +110,9 @@ const acceptSuggestionUC = new AcceptSuggestionUseCase(
 const modifySuggestionUC = new ModifySuggestionUseCase(suggestionRepo, recipeRepo);
 
 
+const getCookingPlanUC = new GetCookingPlanUseCase(inventoryRepo, recipeRepo, generateAndStoreSuggestionUC);
+const getInventoryUC = new GetInventoryUseCase(inventoryRepo);
+
 app.post("/inventory/update", async (request, reply) => {
     // 1) Validación runtime con contracts
     const parsedReq = zUpdateInventoryRequest.safeParse(request.body);
@@ -130,6 +140,20 @@ app.post("/inventory/update", async (request, reply) => {
     }
 
     return reply.status(200).send(parsedRes.data);
+});
+
+app.get("/inventory", async (request, reply) => {
+    const parsed = zGetInventoryQuery.safeParse(request.query);
+    if (!parsed.success) {
+        return reply.status(400).send({ error: "Invalid query", details: parsed.error.flatten() });
+    }
+
+    const out = await getInventoryUC.execute({ householdId: parsed.data.householdId });
+    request.log.info(out, "GetInventory out");
+    const ok = zGetInventoryResponse.safeParse(out);
+    if (!ok.success) return reply.status(500).send({ error: "Invalid response shape" });
+
+    return reply.status(200).send(ok.data);
 });
 
 app.post("/suggestions/generate", async (request, reply) => {
@@ -265,6 +289,28 @@ app.post("/suggestions/modify", async (request, reply) => {
     }
 });
 
+app.get("/ingredients/by-ids", async (request, reply) => {
+    const parsed = zGetIngredientsByIdsQuery.safeParse(request.query);
+    if (!parsed.success) {
+        return reply.status(400).send({ error: "Invalid query", details: parsed.error.flatten() });
+    }
+
+    const ids = parsed.data.ids.split(",").map((s) => s.trim()).filter(Boolean);
+
+    // Prisma: fetch by ids
+    const items = await prisma.ingredient.findMany({
+        where: { id: { in: ids } },
+        select: { id: true, name: true, category: true },
+    });
+
+    const res = { items };
+    const ok = zGetIngredientsByIdsResponse.safeParse(res);
+    if (!ok.success) return reply.status(500).send({ error: "Invalid response shape" });
+
+    return reply.status(200).send(res);
+});
+
+
 app.get("/ingredients/search", async (request, reply) => {
     const parsed = zSearchIngredientsQuery.safeParse(request.query);
     if (!parsed.success) {
@@ -332,6 +378,22 @@ app.post("/ingredients", async (request, reply) => {
     if (!ok.success) return reply.status(500).send({ error: "Invalid response shape" });
 
     return reply.status(201).send(created);
+});
+
+app.post("/plan/today", async (request, reply) => {
+    const parsedReq = zGetCookingPlanRequest.safeParse(request.body);
+    if (!parsedReq.success) {
+        return reply.status(400).send({ error: "Invalid request", details: parsedReq.error.flatten() });
+    }
+
+    try {
+        const out = await getCookingPlanUC.execute(parsedReq.data);
+        const ok = zGetCookingPlanResponse.safeParse(out);
+        if (!ok.success) return reply.status(500).send({ error: "Invalid response shape" });
+        return reply.status(200).send(ok.data);
+    } catch (e: any) {
+        return reply.status(500).send({ error: String(e?.message ?? "Unexpected error") });
+    }
 });
 
 

@@ -22,22 +22,27 @@ Dependencies always point **inwards**, towards the domain.
 
 ```
 ┌─────────────────────────────┐
-│        Interfaces           │
-│  (HTTP / Fastify API)       │
+│ Web App                     │
+│ (React + Tailwind CSS)      │
 └──────────────┬──────────────┘
-               ↓
+↓
 ┌─────────────────────────────┐
-│        Application          │
-│   (Use Cases / DTOs)        │
+│ Interfaces                  │
+│ (HTTP / Fastify API)        │
 └──────────────┬──────────────┘
-               ↓
+↓
 ┌─────────────────────────────┐
-│           Domain            │
+│ Application                 │
+│ (Use Cases / Ports)         │
+└──────────────┬──────────────┘
+↓
+┌─────────────────────────────┐
+│ Domain                      │
 │ (Entities / Value Objects)  │
 └──────────────┬──────────────┘
-               ↑
+↑
 ┌─────────────────────────────┐
-│       Infrastructure        │
+│ Infrastructure              │
 │ (Prisma / PostgreSQL)       │
 └─────────────────────────────┘
 ```
@@ -179,6 +184,11 @@ The database schema is intentionally **not a 1:1 mirror** of the domain model.
 - `POST /shopping-list/from-recipes`
 - `POST /suggestions/accept`
 - `POST /suggestions/modify`
+- `POST /plan/today`
+- `GET /inventory`
+- `GET /ingredients/search`
+- `GET /ingredients/by-ids`
+
 
 ---
 
@@ -213,16 +223,18 @@ Tests are executed using **Vitest**.
 - Domain modeling (Inventory, Recipe)
 - Inventory persistence with PostgreSQL
 - Recipe persistence with PostgreSQL
-- Meal suggestion logic
-- Shopping list generation (two strategies)
+- Suggestion persistence
+- Cooking Plan use case (`/plan/today`)
+- Shopping list generation
 - Runtime contract validation
-- Comprehensive documentation and examples
+- Web Demo (React + Tailwind)
+- End-to-end flow operational
+
 
 ### Not implemented yet (future work)
 - User management and authentication
 - Persisted meal suggestions (accept/reject flow)
 - Nutritional analysis
-- Frontend application
 
 ---
 

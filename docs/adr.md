@@ -157,3 +157,25 @@ Use Tailwind CSS in `apps/web` (and later `apps/admin`) to build a responsive de
 
 ### Consequences
 - Shared UI components can be added later as `packages/ui` if needed
+
+---
+
+## ADR-009 — Cooking Plan as primary entry point
+
+**Status:** Accepted  
+**Date:** 2026-02-19
+
+### Decision
+Expose a single orchestration endpoint `/plan/today` that encapsulates:
+- Suggestion generation
+- Shopping fallback
+- Business decision logic
+
+### Rationale
+- Simplifies frontend integration
+- Centralizes cooking decision logic
+- Prevents fragmented client orchestration
+
+### Consequences
+- Frontend does not manually chain suggestion + shopping logic
+- Business logic remains inside application layer

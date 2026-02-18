@@ -1,87 +1,163 @@
-# TFM – Asistente de planificación de comidas y gestión de inventario
+# TFM – Home Meal Planning System
 
 ## a) Descripción general del proyecto
-Este proyecto desarrolla un sistema para ayudar a hogares/familias a organizar las comidas diarias reduciendo la carga mental y el tiempo dedicado a decidir qué cocinar y qué comprar. El sistema prioriza el uso de alimentos disponibles y próximos a caducar, y genera sugerencias de comidas y listas de compra.
+
+Este proyecto desarrolla un sistema para ayudar a hogares/familias a organizar las comidas diarias reduciendo la carga mental y el tiempo dedicado a decidir qué cocinar y qué comprar.
+
+El sistema:
+
+- Usa el inventario real del hogar.
+- Sugiere recetas que pueden cocinarse inmediatamente.
+- Si no es posible, genera la lista mínima de compra para desbloquear una receta.
+- Permite aceptar sugerencias y consumir inventario.
+- Prioriza el uso de ingredientes disponibles.
+
+El sistema está diseñado bajo principios de **Clean Architecture**, con una API backend y una Web Demo funcional.
+
+---
 
 ## b) Stack tecnológico utilizado
-- **Lenguaje**: TypeScript
-- **Arquitectura**: Clean Architecture (dominio + casos de uso + infraestructura + interfaces)
-- **Testing**: Vitest
-- **Monorepo**: pnpm workspaces (estructura preparada para Turborepo)
-- **Apps previstas**:
-  - Backend API (apps/api)
-  - App móvil usuario (apps/mobile)
-  - Panel admin (apps/admin)
 
-> Nota: en esta fase inicial se ha implementado el dominio y sus tests.
+### Backend
+- **Lenguaje**: TypeScript
+- **Framework HTTP**: Fastify
+- **Arquitectura**: Clean Architecture (DDD-light)
+- **Base de datos**: PostgreSQL
+- **ORM**: Prisma
+- **Validación runtime**: Zod
+- **Testing**: Vitest
+
+### Frontend (Web Demo)
+- React
+- Vite
+- TypeScript
+- Tailwind CSS
+
+### Monorepo
+- pnpm workspaces
+- packages/contracts compartido entre backend y frontend
+
+---
 
 ## c) Instalación y ejecución
-### Requisitos
-- Node.js (LTS recomendado)
-- pnpm
 
-### Instalación
-En la raíz del repositorio:
+### Requisitos
+- Node.js (LTS)
+- pnpm
+- PostgreSQL
+- Docker (opcional para la base de datos)
+
+---
+
+### 1. Instalar dependencias
+
+Desde la raíz:
+
 ```bash
 pnpm install
 ```
+### 2. Configurar base de datos
 
-### Ejecutar tests (dominio)
+Configurar **DATABASE_URL** en **.env** dentro de **apps/api**.
+
+Ejecutar migraciones:
+
 ```bash
-pnpm -C apps/api test
+pnpm -C apps/api prisma migrate dev
 ```
 
-### Ejecutar servidor API (modo desarrollo)
+Seed:
+
+```bash
+pnpm -C apps/api prisma db seed
+```
+
+### 3. Ejecutar backend
+
 ```bash
 pnpm -C apps/api dev
 ```
-**Probar endpoint (PowerShell)**
-```bash
-$body = @{
-  householdId = "550e8400-e29b-41d4-a716-446655440000"
-  operations = @(
-    @{
-      type="ADD"
-      ingredientId="550e8400-e29b-41d4-a716-446655440000"
-      amount=2
-      expirationDate="2026-02-05"
-    }
-  )
-} | ConvertTo-Json -Depth 5
 
-Invoke-RestMethod -Method Post -Uri http://127.0.0.1:3000/inventory/update -ContentType "application/json" -Body $body
+Servidor disponible en:
+
+```cpp
+http://127.0.0.1:3000
 ```
+
+### 4. Ejecutar Web Demo
+
+```bash
+pnpm -C apps/web dev
+```
+
+Disponible en:
+
+```arduino
+http://localhost:5173
+```
+
+---
 
 ## d) Estructura del proyecto
-```
+
+```bash
 apps/
-├── api/        # backend (dominio, tests)
-├── mobile/     # app usuario (pendiente)
-└── admin/      # panel admin (pendiente)
+├── api/        # Backend API (Clean Architecture)
+├── web/        # Web Demo (React + Tailwind)
+├── mobile/     # App móvil (futuro)
+└── admin/      # Panel administración (futuro)
 
 packages/
-└── contracts/  # contratos compartidos (en preparación)
+└── contracts/  # Contratos compartidos (Zod + TS)
 ```
 
-Dentro de **apps/api/src**:
-```
-- domain/: entidades y value objects (lógica de negocio)
-- application/: casos de uso (orquestación)
-- infrastructure/: persistencia/servicios externos (futuro)
-- interfaces/: controladores/adaptadores (futuro)
-```
+---
 
-## e) Funcionalidades principales (MVP)
+## e) Funcionalidades principales actuales
 
-- Modelo de dominio del inventario:
-    - Quantity (Value Object) con regla de no-negatividad
-    - InventoryItem y Inventory como agregado raíz
-    - Consumo de ingredientes y eliminación al llegar a cero
-    - Detección de productos próximos a caducar
-- Tests unitarios del dominio:
-    - Quantity
-    - Inventory
+### Inventario
 
-## API documentation
+- Añadir ingredientes
+- Cantidades y fechas de caducidad
+- Persistencia en PostgreSQL
+
+### Cooking Plan (flujo principal)
+
+Endpoint: **POST /plan/today**
+
+Devuelve:
+
+- SUGGESTION
+  - Recetas posibles con inventario actual
+  - suggestionId persistido
+- NEEDS_SHOPPING
+  - Receta objetivo
+  - Lista mínima de compra
+
+### Accept Suggestion
+
+- Consume inventario
+- Actualiza estado
+
+### Shopping List
+
+- Desde recetas explícitas
+- Desde plan automático
+
+---
+
+## f) Estado actual del sistema
+
+✔ Arquitectura limpia implementada
+✔ Persistencia real con PostgreSQL
+✔ Validación estricta con contracts
+✔ Web demo funcional y responsive (Tailwind)
+✔ Flujo end-to-end operativo
+
+---
+
+## Documentación adicional
+
 - [Architecture overview](docs/architecture.md)
 - [HTTP API examples](docs/http-examples.md)
+- [Architecture Decision Record](docs/adr.md)
