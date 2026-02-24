@@ -65,7 +65,8 @@ class FakeRecipeRepo implements RecipeRepository {
 }
 
 describe("AcceptSuggestionUseCase", () => {
-    it("accepts a suggestion, consumes inventory, and sets status to ACEPTADA", async () => {
+
+    it("accepts a suggestion for a selected recipe, consumes only that recipe ingredients, and sets status to ACEPTADA", async () => {
         const householdId = "home-1";
         const suggestionId = "sug-1";
 
@@ -100,18 +101,56 @@ describe("AcceptSuggestionUseCase", () => {
 
         const uc = new AcceptSuggestionUseCase(suggestionRepo, inventoryRepo, recipeRepo);
 
-        const out = await uc.execute({ suggestionId });
+        // Select recipe r2 only
+        const out = await uc.execute({ suggestionId, recipeId: "r2" });
 
+        // Output should include accepted status (and optionally acceptedRecipeId if you add it)
         expect(out).toEqual({ suggestionId, status: "ACEPTADA" });
 
-        // Inventory consumed: milk 2->1, rice 1->0 (removed)
+        // Inventory consumed ONLY for r2:
+        // milk stays 2, rice 1->0 (removed)
         const invAfter = await inventoryRepo.getByHouseholdId(householdId);
-        expect(invAfter?.getItem("milk")?.getQuantity().getValue()).toBe(1);
+        expect(invAfter?.getItem("milk")?.getQuantity().getValue()).toBe(2);
         expect(invAfter?.getItem("rice")).toBeUndefined();
 
         // Status updated
         const sAfter = await suggestionRepo.getById(suggestionId);
         expect(sAfter?.status).toBe("ACEPTADA");
+    });
+
+    it("throws when selected recipeId is not part of the suggestion", async () => {
+        const householdId = "home-1";
+        const suggestionId = "sug-1b";
+
+        const inv = new Inventory();
+        inv.addIngredient("milk", Quantity.create(2));
+        inv.addIngredient("rice", Quantity.create(1));
+        const inventoryRepo = new FakeInventoryRepo(new Map([[householdId, inv]]));
+
+        const r1 = new Recipe("r1", "Milk & Cereal", [
+            { ingredientId: "milk", amount: Quantity.create(1) },
+        ]);
+        const r2 = new Recipe("r2", "Rice Bowl", [
+            { ingredientId: "rice", amount: Quantity.create(1) },
+        ]);
+        const recipeRepo = new FakeRecipeRepo(new Map([[householdId, [r1, r2]]));
+
+        const suggestion: PersistedSuggestion = {
+            id: suggestionId,
+            householdId,
+            date: "2026-02-03",
+            slot: "CENA",
+            status: "PROPUESTA",
+            recipes: [
+                { recipeId: "r1", name: "Milk & Cereal", position: 0 },
+                { recipeId: "r2", name: "Rice Bowl", position: 1 },
+            ],
+        };
+        const suggestionRepo = new FakeSuggestionRepo([suggestion]);
+
+        const uc = new AcceptSuggestionUseCase(suggestionRepo, inventoryRepo, recipeRepo);
+
+        await expect(uc.execute({ suggestionId, recipeId: "r3" })).rejects.toThrow();
     });
 
     it("is idempotent: accepting an already accepted suggestion returns ACEPTADA and does not throw", async () => {
@@ -169,6 +208,7 @@ describe("AcceptSuggestionUseCase", () => {
 
         const uc = new AcceptSuggestionUseCase(suggestionRepo, inventoryRepo, recipeRepo);
 
-        await expect(uc.execute({ suggestionId })).rejects.toThrow();
+        await expect(uc.execute({ suggestionId, recipeId: "r1" })).rejects.toThrow();
     });
+
 });

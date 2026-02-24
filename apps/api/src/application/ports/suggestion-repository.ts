@@ -6,7 +6,9 @@ export type PersistedSuggestion = {
     date: string; // YYYY-MM-DD
     slot: "DESAYUNO" | "COMIDA" | "CENA";
     status: SuggestionStatus;
+    acceptedRecipeId?: string | null;
     recipes: Array<{ recipeId: string; name: string; position: number }>;
+    
 };
 
 export interface SuggestionRepository {
@@ -14,4 +16,5 @@ export interface SuggestionRepository {
     getDailySuggestion(householdId: string, date: string, slot: PersistedSuggestion["slot"]): Promise<PersistedSuggestion | null>;
     setStatus(suggestionId: string, status: SuggestionStatus): Promise<void>;
     getById(suggestionId: string): Promise<PersistedSuggestion | null>;
+    setAcceptedRecipe(suggestionId: string, recipeId: string): Promise<void>;
 }

@@ -44,6 +44,8 @@ model Recipe {
   household   Household          @relation(fields: [householdId], references: [id])
   ingredients RecipeIngredient[]
 
+  acceptedInSuggestions MealSuggestion[] @relation("AcceptedRecipe")
+
   @@index([householdId])
 }
 
@@ -66,14 +68,24 @@ enum SuggestionStatus {
   MODIFICADA
 }
 
+enum MealSlot {
+  DESAYUNO
+  COMIDA
+  CENA
+}
+
 model MealSuggestion {
   id          String           @id @default(uuid())
   householdId String
   date        DateTime
-  slot        String
+  slot        MealSlot
   status      SuggestionStatus @default(PROPUESTA)
-  createdAt   DateTime         @default(now())
-  updatedAt   DateTime         @updatedAt
+
+  acceptedRecipeId String?
+  acceptedRecipe   Recipe? @relation("AcceptedRecipe", fields: [acceptedRecipeId], references: [id])
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 
   household Household              @relation(fields: [householdId], references: [id])
   recipes   MealSuggestionRecipe[]
@@ -91,6 +103,8 @@ model MealSuggestionRecipe {
 
   suggestion MealSuggestion @relation(fields: [suggestionId], references: [id])
 
+  @@unique([suggestionId, position])
+  @@unique([suggestionId, recipeId])
   @@index([suggestionId])
 }
 

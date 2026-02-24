@@ -179,3 +179,26 @@ Expose a single orchestration endpoint `/plan/today` that encapsulates:
 ### Consequences
 - Frontend does not manually chain suggestion + shopping logic
 - Business logic remains inside application layer
+
+## ADR-010 — Cooking Plan acceptance model
+
+**Status:** Accepted
+**Date:** 2026-02-24
+
+### Decision
+The Cooking Plan API does not use kind="ACCEPTED".
+Instead:
+- kind="SUGGESTION"
+- status="ACEPTADA"
+- acceptedRecipeId indicates which recipe was accepted.
+
+### Rationale
+- Avoid duplicated API models.
+- Keep one unified suggestion model.
+- Simplify frontend logic.
+- Preserve backward compatibility in contracts.
+
+### Consequences
+- acceptedRecipeId must persist in MealSuggestion.
+- upsertDailySuggestion must NOT overwrite acceptedRecipeId.
+- `/plan/today` must always return acceptedRecipeId when status is ACEPTADA.

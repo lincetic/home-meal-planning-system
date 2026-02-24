@@ -195,3 +195,64 @@ Invoke-RestMethod `
 -   Inventory and recipes are persisted using PostgreSQL (Prisma).
 -   Accepting a suggestion consumes inventory.
 -   Modifying does NOT consume inventory.
+
+------------------------------------------------------------------------
+
+# 8️⃣ POST /plan/today
+
+## Example: SUGGESTION (not accepted)
+``` powershell
+$body = @{
+  householdId = "550e8400-e29b-41d4-a716-446655440000"
+  date = "2026-02-03"
+  slot = "CENA"
+  maxSuggestions = 3
+} | ConvertTo-Json -Depth 5
+
+Invoke-RestMethod `
+  -Method Post `
+  -Uri http://127.0.0.1:3000/plan/today `
+  -ContentType "application/json" `
+  -Body $body |
+  ConvertTo-Json -Depth 20
+```
+
+## Example: SUGGESTION (accepted)
+
+``` powershell
+$body = @{
+  suggestionId = "32afe45b-7753-4fd0-bc0c-0aac5c254305"
+  recipeId = "cccccccc-cccc-cccc-cccc-cccccccccccc"
+} | ConvertTo-Json -Depth 5
+
+Invoke-RestMethod `
+  -Method Post `
+  -Uri http://127.0.0.1:3000/suggestions/accept `
+  -ContentType "application/json" `
+  -Body $body |
+  ConvertTo-Json -Depth 20
+```
+
+## Example: NEEDS_SHOPPING
+
+```json
+{
+  "kind": "NEEDS_SHOPPING",
+  "householdId": "550e8400-e29b-41d4-a716-446655440000",
+  "date": "2026-02-05",
+  "slot": "CENA",
+  "targetRecipe": {
+    "recipeId": "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa",
+    "name": "Milk & Cereal"
+  },
+  "shoppingList": {
+    "items": [
+      {
+        "ingredientId": "milk-id",
+        "missingAmount": 1
+      }
+    ]
+  }
+}
+```
+

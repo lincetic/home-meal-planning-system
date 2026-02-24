@@ -110,7 +110,7 @@ const acceptSuggestionUC = new AcceptSuggestionUseCase(
 const modifySuggestionUC = new ModifySuggestionUseCase(suggestionRepo, recipeRepo);
 
 
-const getCookingPlanUC = new GetCookingPlanUseCase(inventoryRepo, recipeRepo, generateAndStoreSuggestionUC);
+const getCookingPlanUC = new GetCookingPlanUseCase(inventoryRepo, recipeRepo, suggestionRepo, generateAndStoreSuggestionUC);
 const getInventoryUC = new GetInventoryUseCase(inventoryRepo);
 
 app.post("/inventory/update", async (request, reply) => {
@@ -244,7 +244,12 @@ app.post("/suggestions/accept", async (request, reply) => {
     }
 
     try {
-        const out = await acceptSuggestionUC.execute({ suggestionId: parsedReq.data.suggestionId });
+        //const out = await acceptSuggestionUC.execute({ suggestionId: parsedReq.data.suggestionId });
+        const out = await acceptSuggestionUC.execute({
+            suggestionId: parsedReq.data.suggestionId,
+            recipeId: parsedReq.data.recipeId,
+        });
+
         const parsedRes = zAcceptSuggestionResponse.safeParse(out);
         if (!parsedRes.success) return reply.status(500).send({ error: "Invalid response shape" });
         return reply.status(200).send(parsedRes.data);
@@ -253,6 +258,8 @@ app.post("/suggestions/accept", async (request, reply) => {
         if (String(e?.message).includes("not found")) return reply.status(404).send({ error: e.message });
         if (String(e?.message).includes("negative") || String(e?.message).includes("insufficient"))
             return reply.status(409).send({ error: e.message });
+        if (String(e?.message).includes("not part of the suggestion")) 
+            return reply.status(400).send({ error: e.message });
         return reply.status(500).send({ error: "Unexpected error" });
     }
 });

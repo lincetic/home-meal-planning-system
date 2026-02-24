@@ -94,3 +94,36 @@ When requesting changes, include:
 
 Example:
 > "Add endpoint X. Write failing tests first. Make response match contract Y. Update http-examples."
+
+## 10) Security MVP Rules (TFM Minimum)
+
+For the MVP, the API MUST enforce authentication and basic authorization.
+
+Minimum required:
+- Users can login and obtain a session (JWT or secure cookie).
+- Every household-scoped endpoint MUST require auth.
+- Every request using householdId MUST validate membership:
+  - the authenticated user must belong to that householdId
+  - otherwise return 403
+
+Rules:
+- No endpoint should trust householdId from client without membership check.
+- Do not leak stack traces or internal errors in production mode.
+- Passwords must be hashed (argon2 preferred, bcrypt acceptable).
+
+Testing:
+- Add tests for:
+  - unauthenticated request → 401
+  - authenticated but wrong household → 403
+  - authenticated and correct household → 200
+
+
+## 11) Demo & Release Checklist (TFM)
+
+Before final submission:
+- pnpm test passes (backend at minimum)
+- DB migrations + seed are reproducible from scratch
+- docs/http-examples.md includes a complete demo flow:
+  - login → inventory add → plan today → accept → plan accepted
+- README contains a "Demo Steps" section
+- A slide deck exists and matches the implemented behavior

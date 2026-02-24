@@ -12,31 +12,59 @@ export class AcceptSuggestionUseCase {
 
     async execute(input: AcceptSuggestionInput): Promise<AcceptSuggestionOutput> {
         // 1) Load suggestion
-        // We need a method to get by id. We'll add it now.
         const suggestion = await (this.suggestionRepo as any).getById(input.suggestionId);
         if (!suggestion) throw new Error("Suggestion not found");
 
+        // Idempotency
         if (suggestion.status === "ACEPTADA") {
             return { suggestionId: suggestion.id, status: "ACEPTADA" };
         }
 
-        // 2) Load inventory
+        // 2) Decide which recipe to accept/consume
+        const suggestedRecipes: Array<{ recipeId: string; position: number }> =
+            (suggestion.recipes ?? []).map((r: any) => ({ recipeId: r.recipeId, position: r.position ?? 0 }));
+
+        if (suggestedRecipes.length === 0) {
+            throw new Error("Suggestion has no recipes");
+        }
+
+        let chosenRecipeId: string;
+
+        if (input.recipeId) {
+            const isInSuggestion = suggestedRecipes.some((r) => r.recipeId === input.recipeId);
+            if (!isInSuggestion) throw new Error("Selected recipe is not part of the suggestion");
+            chosenRecipeId = input.recipeId;
+        } else {
+            // Default: pick the lowest position
+            chosenRecipeId = suggestedRecipes.slice().sort((a, b) => a.position - b.position)[0].recipeId;
+        }
+
+        // 3) Load inventory
         const inventory = await this.inventoryRepo.getByHouseholdId(suggestion.householdId);
         if (!inventory) throw new Error("Inventory not found");
 
-        // 3) Load recipes and consume
-        const recipeIds = suggestion.recipes.map((r: any) => r.recipeId);
-        const recipes = await this.recipeRepo.getByIds(suggestion.householdId, recipeIds);
-
-        // Consume each recipe ingredient
-        for (const recipe of recipes) {
-            for (const ing of recipe.getIngredients()) {
-                inventory.consumeIngredient(ing.ingredientId, ing.amount);
+        // 4) Load chosen recipe and consume
+        const recipes = await this.recipeRepo.getByIds(suggestion.householdId, [chosenRecipeId]);
+        const chosen = recipes[0];
+        if (!chosen) throw new Error("Recipe not found");
+        // 4.5) Validate inventory before consuming (prevents negative)
+        for (const ing of chosen.getIngredients()) {
+            const have = inventory.getItem(ing.ingredientId)?.getQuantity().getValue() ?? 0;
+            const need = ing.amount.getValue();
+            if (have < need) {
+                throw new Error(
+                    `Not enough inventory for ingredient ${ing.ingredientId}: have ${have}, need ${need}`
+                );
             }
         }
 
-        // 4) Persist inventory + set status accepted
+        for (const ing of chosen.getIngredients()) {
+            inventory.consumeIngredient(ing.ingredientId, ing.amount);
+        }
+
+        // 5) Persist inventory + set status accepted
         await this.inventoryRepo.save(suggestion.householdId, inventory);
+        await this.suggestionRepo.setAcceptedRecipe(suggestion.id, chosenRecipeId);
         await this.suggestionRepo.setStatus(suggestion.id, "ACEPTADA");
 
         return { suggestionId: suggestion.id, status: "ACEPTADA" };

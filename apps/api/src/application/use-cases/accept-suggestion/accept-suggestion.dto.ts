@@ -1,8 +1,10 @@
-export interface AcceptSuggestionInput {
-    suggestionId: string;
-}
+export type AcceptSuggestionInput = {
+  suggestionId: string;
+  recipeId?: string;
+};
 
-export interface AcceptSuggestionOutput {
-    suggestionId: string;
-    status: "ACEPTADA";
-}
+export type AcceptSuggestionOutput = {
+  suggestionId: string;
+  status: "ACEPTADA";
+};
+

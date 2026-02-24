@@ -2,7 +2,8 @@ import { z } from "zod";
 import { zId } from "../common/ids";
 
 export const zAcceptSuggestionRequest = z.object({
-    suggestionId: zId,
+  suggestionId: z.string().uuid(),
+  recipeId: z.string().uuid().optional(),
 });
 
 export const zAcceptSuggestionResponse = z.object({

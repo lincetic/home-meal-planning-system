@@ -116,6 +116,13 @@ The domain layer has **no knowledge of persistence, HTTP, or frameworks**.
   - Ensure all recipeIds exist
   - Persist: overwrite recipes + set status MODIFICADA
 
+- **Cooking Plan orchestration**
+  - GetCookingPlanUseCase
+    - Returns:
+      - SUGGESTION (with acceptedRecipeId if accepted)
+      - NEEDS_SHOPPING
+  - Does not regenerate suggestions if already accepted.
+
 All use cases are covered by unit tests.
 
 ---
@@ -229,11 +236,15 @@ Tests are executed using **Vitest**.
 - Runtime contract validation
 - Web Demo (React + Tailwind)
 - End-to-end flow operational
+- Persisted meal suggestions per household + date + slot
+- Suggestion state machine: PROPUESTA → ACEPTADA
+- acceptedRecipeId persistence
+- Idempotent acceptance behavior
+- Cooking Plan orchestration endpoint /plan/today
 
 
 ### Not implemented yet (future work)
 - User management and authentication
-- Persisted meal suggestions (accept/reject flow)
 - Nutritional analysis
 
 ---

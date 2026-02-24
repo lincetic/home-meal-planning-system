@@ -16,41 +16,11 @@ import {
   searchIngredients,
   updateInventory,
   type Ingredient,
+  type MealSlot,
+  type CookingPlan,
+  type CookingPlanSuggestion,
+  type InventoryDto,
 } from "./api/endpoints";
-
-type MealSlot = "DESAYUNO" | "COMIDA" | "CENA";
-
-type InventoryItemDto = {
-  ingredientId: string;
-  quantity: number;
-  expirationDate: string | null;
-};
-
-type InventoryDto = {
-  householdId: string;
-  items: InventoryItemDto[];
-};
-
-type CookingPlanSuggestion = {
-  kind: "SUGGESTION";
-  suggestionId: string;
-  status: "PROPUESTA" | "ACEPTADA" | "MODIFICADA";
-  householdId: string;
-  date: string;
-  slot: MealSlot;
-  recipes: Array<{ recipeId: string; name: string; position: number }>;
-};
-
-type CookingPlanNeedsShopping = {
-  kind: "NEEDS_SHOPPING";
-  householdId: string;
-  date: string;
-  slot: MealSlot;
-  targetRecipe: { recipeId: string; name: string };
-  shoppingList: { items: Array<{ ingredientId: string; missingAmount: number }> };
-};
-
-type CookingPlan = CookingPlanSuggestion | CookingPlanNeedsShopping;
 
 export default function App() {
   const [householdId] = useState(DEFAULT_HOUSEHOLD_ID);
@@ -71,6 +41,9 @@ export default function App() {
   const [slot, setSlot] = useState<MealSlot>("CENA");
   const [plan, setPlan] = useState<CookingPlan | null>(null);
 
+  // Selected recipe inside current suggestion
+  const [selectedRecipeId, setSelectedRecipeId] = useState<string>("");
+
   // UI
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState<string>("");
@@ -81,7 +54,7 @@ export default function App() {
     const inv = await getInventory(householdId);
     setInventory(inv);
 
-    const ids = Array.from(new Set(inv.items.map((i: any) => i.ingredientId)));
+    const ids = Array.from(new Set(inv.items.map((i) => i.ingredientId)));
     if (ids.length > 0) {
       const res = await getIngredientsByIds(ids);
       const map: Record<string, string> = {};
@@ -102,6 +75,7 @@ export default function App() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
+  // Autocomplete
   useEffect(() => {
     let cancelled = false;
 
@@ -125,6 +99,36 @@ export default function App() {
     };
   }, [q, canSearch]);
 
+  useEffect(() => {
+    if (!plan || plan.kind !== "SUGGESTION") {
+      setSelectedRecipeId("");
+      return;
+    }
+
+    const sug = plan as CookingPlanSuggestion;
+
+    // Si el plan está aceptado => fija selection al acceptedRecipeId
+    if (sug.status === "ACEPTADA" && sug.acceptedRecipeId) {
+      setSelectedRecipeId(sug.acceptedRecipeId);
+      return;
+    }
+
+    // Si el usuario ya tiene una selección válida en esta suggestion, NO la machaques
+    const stillValid =
+      selectedRecipeId &&
+      sug.recipes.some((r) => r.recipeId === selectedRecipeId);
+
+    if (stillValid) return;
+
+    // Si no hay selección válida, elige la primera por position
+    const first =
+      sug.recipes.slice().sort((a, b) => a.position - b.position)[0]?.recipeId ?? "";
+
+    setSelectedRecipeId(first);
+    // 👇 añade selectedRecipeId a deps
+  }, [plan, selectedRecipeId]);
+
+
   async function addToInventory() {
     if (!selected) return;
     setBusy(true);
@@ -142,12 +146,16 @@ export default function App() {
         ],
       };
       await updateInventory(body);
+
       setSelected(null);
       setQ("");
       setResults([]);
       setAmount(1);
       setExpirationDate("");
+
       await refreshInventory();
+
+      // If you add inventory, plan might change, so we clear it.
       setPlan(null);
     } catch (e: any) {
       setErr(e?.message ?? "Failed to update inventory");
@@ -160,12 +168,13 @@ export default function App() {
     setBusy(true);
     setErr("");
     try {
-      const out: CookingPlan = await getPlanToday({
+      const out = await getPlanToday({
         householdId,
         date,
         slot,
         maxSuggestions: 3,
       });
+
       setPlan(out);
 
       if (out.kind === "NEEDS_SHOPPING") {
@@ -186,18 +195,35 @@ export default function App() {
 
   async function acceptCurrentSuggestion() {
     if (!plan || plan.kind !== "SUGGESTION") return;
+
+    // If already accepted, do nothing (idempotent UX)
+    if (plan.status === "ACEPTADA") return;
+
+    const chosenId = selectedRecipeId || plan.recipes[0]?.recipeId;
+    if (!chosenId) {
+      setErr("Select a recipe first");
+      return;
+    }
+
     setBusy(true);
     setErr("");
     try {
-      await acceptSuggestion({ suggestionId: plan.suggestionId });
+      await acceptSuggestion({
+        suggestionId: plan.suggestionId,
+        recipeId: chosenId,
+      });
+
+      // Refresh inventory because accept consumes
       await refreshInventory();
 
-      const out: CookingPlan = await getPlanToday({
+      // Recompute plan: now it should come back as SUGGESTION with status ACEPTADA (and acceptedRecipeId)
+      const out = await getPlanToday({
         householdId,
         date,
         slot,
         maxSuggestions: 3,
       });
+
       setPlan(out);
     } catch (e: any) {
       setErr(e?.message ?? "Failed to accept suggestion");
@@ -207,6 +233,22 @@ export default function App() {
   }
 
   const invRows = inventory?.items ?? [];
+
+  const selectedRecipeName =
+    plan?.kind === "SUGGESTION"
+      ? plan.recipes.find((r) => r.recipeId === selectedRecipeId)?.name ?? "(none)"
+      : "(none)";
+
+  const isAccepted = plan?.kind === "SUGGESTION" && plan.status === "ACEPTADA";
+
+  const visibleRecipes =
+    plan?.kind === "SUGGESTION"
+      ? isAccepted && plan.acceptedRecipeId
+        ? plan.recipes.filter(
+          (r) => r.recipeId === plan.acceptedRecipeId
+        )
+        : plan.recipes
+      : [];
 
   return (
     <div className="min-h-screen bg-slate-50">
@@ -379,7 +421,9 @@ export default function App() {
                 {!plan ? (
                   <Pill>no plan</Pill>
                 ) : plan.kind === "SUGGESTION" ? (
-                  <Pill tone="success">SUGGESTION</Pill>
+                  <Pill tone={plan.status === "ACEPTADA" ? "success" : "neutral"}>
+                    {plan.status}
+                  </Pill>
                 ) : (
                   <Pill tone="warn">NEEDS_SHOPPING</Pill>
                 )}
@@ -397,31 +441,67 @@ export default function App() {
               ) : plan.kind === "SUGGESTION" ? (
                 <div className="space-y-4">
                   <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
-                    <div className="flex items-center gap-2">
-                      <Pill tone="success">✅ You can cook now</Pill>
+                    <div className="flex flex-wrap items-center gap-2">
+                      <Pill tone="success">{isAccepted ? "✅ Plan accepted" : "✅ You can cook now"}</Pill>
                       <span className="text-xs text-slate-500">(stored as {plan.status})</span>
                     </div>
-                    <Button variant="success" onClick={acceptCurrentSuggestion} disabled={busy}>
-                      {busy ? "Accepting..." : "Accept (consume inventory)"}
+
+                    <div className="text-sm text-slate-700">
+                      {isAccepted ? (
+                        <>
+                          Accepted recipe: <span className="font-semibold">{selectedRecipeName}</span>
+                        </>
+                      ) : (
+                        <>
+                          Selected recipe: <span className="font-semibold">{selectedRecipeName}</span>
+                        </>
+                      )}
+                    </div>
+
+                    <Button
+                      variant="success"
+                      onClick={acceptCurrentSuggestion}
+                      disabled={busy || isAccepted}
+                      type="button"
+                    >
+                      {isAccepted ? "Already accepted" : busy ? "Accepting..." : "Accept selected recipe"}
                     </Button>
                   </div>
 
                   <div className="overflow-hidden rounded-2xl border border-slate-200 bg-white">
-                    <div className="bg-slate-50 px-4 py-3 text-xs font-semibold text-slate-600">Suggested recipes</div>
+                    <div className="bg-slate-50 px-4 py-3 text-xs font-semibold text-slate-600">
+                      Suggested recipes
+                    </div>
                     <div className="divide-y divide-slate-100">
-                      {plan.recipes
+                      {visibleRecipes
                         .slice()
                         .sort((a, b) => a.position - b.position)
-                        .map((r, idx) => (
-                          <div key={r.recipeId} className={idx % 2 === 1 ? "bg-slate-50/40" : ""}>
-                            <div className="flex items-start justify-between gap-4 px-4 py-3">
-                              <div className="min-w-0">
-                                <div className="truncate text-sm font-semibold text-slate-900">{r.name}</div>
-                                <div className="truncate text-xs text-slate-500">recipeId: {r.recipeId}</div>
-                              </div>
-                              <Pill>#{r.position + 1}</Pill>
+                        .map((r) => (
+                          <button
+                            key={r.recipeId}
+                            type="button"
+                            onClick={() => {
+                              // If accepted, keep selection locked to accepted recipe
+                              if (isAccepted) return;
+                              setSelectedRecipeId(r.recipeId);
+                            }}
+                            className={[
+                              "w-full text-left px-4 py-3 flex items-start justify-between gap-4",
+                              selectedRecipeId === r.recipeId ? "bg-emerald-50" : "hover:bg-slate-50",
+                              isAccepted ? "cursor-default" : "",
+                            ].join(" ")}
+                          >
+                            <div className="min-w-0">
+                              <div className="truncate text-sm font-semibold text-slate-900">{r.name}</div>
+                              <div className="truncate text-xs text-slate-500">recipeId: {r.recipeId}</div>
                             </div>
-                          </div>
+
+                            {selectedRecipeId === r.recipeId ? (
+                              <Pill tone="success">{isAccepted ? "Accepted" : "Selected"}</Pill>
+                            ) : (
+                              <Pill>#{r.position + 1}</Pill>
+                            )}
+                          </button>
                         ))}
                     </div>
                   </div>
@@ -436,12 +516,15 @@ export default function App() {
                   <div className="flex items-center gap-2">
                     <Pill tone="warn">🛒 No recipes possible</Pill>
                     <div className="text-sm font-semibold text-slate-900">
-                      Recommended recipe: {plan.targetRecipe.name}
+                      Recommended recipe:{" "}
+                      {plan.targetRecipe?.name ?? "(unknown recipe)"}
                     </div>
                   </div>
 
                   <div className="overflow-hidden rounded-2xl border border-slate-200 bg-white">
-                    <div className="bg-slate-50 px-4 py-3 text-xs font-semibold text-slate-600">Minimal shopping list</div>
+                    <div className="bg-slate-50 px-4 py-3 text-xs font-semibold text-slate-600">
+                      Minimal shopping list
+                    </div>
                     <div className="divide-y divide-slate-100">
                       {plan.shoppingList.items.map((it, idx) => (
                         <div key={it.ingredientId} className={idx % 2 === 1 ? "bg-slate-50/40" : ""}>

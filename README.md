@@ -148,11 +148,13 @@ Devuelve:
 
 ## f) Estado actual del sistema
 
+```
 ✔ Arquitectura limpia implementada
 ✔ Persistencia real con PostgreSQL
 ✔ Validación estricta con contracts
 ✔ Web demo funcional y responsive (Tailwind)
 ✔ Flujo end-to-end operativo
+```
 
 ---
 

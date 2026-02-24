@@ -22,6 +22,22 @@ const zShoppingItem = z.object({
     missingAmount: z.number().positive(),
 });
 
+export const zCookingPlanAccepted = z.object({
+    kind: z.literal("ACCEPTED"),
+    suggestionId: zId,
+    status: z.literal("ACEPTADA"),
+    householdId: zId,
+    date: zDateYYYYMMDD,
+    slot: zMealSlot,
+
+    acceptedRecipe: z.object({
+        recipeId: zId,
+        name: z.string().min(1),
+    }),
+
+    alternatives: z.array(zSuggestedRecipe).max(50),
+});
+
 export const zCookingPlanSuggestion = z.object({
     kind: z.literal("SUGGESTION"),
     suggestionId: zId,
@@ -29,6 +45,7 @@ export const zCookingPlanSuggestion = z.object({
     householdId: zId,
     date: zDateYYYYMMDD,
     slot: zMealSlot,
+    acceptedRecipeId: zId.nullable().optional(),
     recipes: z.array(zSuggestedRecipe).min(1).max(3),
 });
 

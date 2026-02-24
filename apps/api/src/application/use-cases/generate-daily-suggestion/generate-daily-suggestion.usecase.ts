@@ -1,3 +1,4 @@
+import { Inventory } from "../../../domain/entities/inventory";
 import { InventoryRepository } from "../../ports/inventory-repository";
 import { RecipeRepository } from "../../ports/recipe-repository";
 import { GenerateDailySuggestionInput, GenerateDailySuggestionOutput } from "./generate-daily-suggestion.dto";
@@ -12,20 +13,8 @@ export class GenerateDailySuggestionUseCase {
         const max = input.maxSuggestions ?? 3;
         const expDays = input.expiringDaysThreshold ?? 3;
 
-        const inventory = await this.inventoryRepo.getByHouseholdId(input.householdId);
-        if (!inventory) {
-            // MVP: si no hay inventario, no podemos sugerir basado en “lo que hay”
-            return {
-                householdId: input.householdId,
-                date: input.date,
-                slot: input.slot,
-                recipes: [],
-                reasoning: {
-                    usedExpiringIngredients: [],
-                    totalCandidateRecipes: 0,
-                },
-            };
-        }
+        const inventory = (await this.inventoryRepo.getByHouseholdId(input.householdId)) ?? new Inventory();
+
 
         const recipes = await this.recipeRepo.listByHouseholdId(input.householdId);
 
@@ -34,12 +23,15 @@ export class GenerateDailySuggestionUseCase {
         const expiring = inventory.getExpiringSoon(refDate, expDays);
         const expiringIds = new Set(expiring.map((i) => i.getIngredientId()));
 
-        // 2) filtrar recetas posibles (para MVP: “posible” si cada ingrediente está en inventario)
-        const inventoryIngredientIds = new Set(inventory.getItems().map((i) => i.getIngredientId()));
-
+        // 2) filtrar recetas realmente cocinables (mismo criterio que el plan)
         const candidates = recipes.filter((r) =>
-            r.getIngredients().every((ing) => inventoryIngredientIds.has(ing.ingredientId))
+            r.getIngredients().every((ing) => {
+                const have = inventory.getItem(ing.ingredientId)?.getQuantity().getValue() ?? 0;
+                const need = ing.amount.getValue();
+                return have >= need;
+            })
         );
+
 
         // 3) scoring: +1 por cada ingrediente de la receta que esté próximo a caducar
         const scored = candidates
