@@ -61,7 +61,7 @@ describe("GetCookingPlanUseCase", () => {
         const uc = new GetCookingPlanUseCase(
             new FakeInventoryRepo(new Inventory()),
             new FakeRecipeRepo([]),
-            new FakeSuggestionRepo(null), // NEW
+            new FakeSuggestionRepo(null),
             {} as GenerateAndStoreDailySuggestionUseCase
         );
 
@@ -96,7 +96,7 @@ describe("GetCookingPlanUseCase", () => {
         const uc = new GetCookingPlanUseCase(
             new FakeInventoryRepo(inventory),
             new FakeRecipeRepo(recipes),
-            new FakeSuggestionRepo(null), // NEW
+            new FakeSuggestionRepo(null),
             generator
         );
 
@@ -113,6 +113,7 @@ describe("GetCookingPlanUseCase", () => {
             householdId: "home-1",
             date: "2026-02-03",
             slot: "CENA",
+            acceptedRecipeId: null,
             recipes: [{ recipeId: "r1", name: "Milk & Cereal", position: 0 }],
         });
     });
@@ -127,7 +128,7 @@ describe("GetCookingPlanUseCase", () => {
         const uc = new GetCookingPlanUseCase(
             new FakeInventoryRepo(inventory),
             new FakeRecipeRepo([milkRecipe, eggsRecipe]),
-            new FakeSuggestionRepo(null), // NEW
+            new FakeSuggestionRepo(null),
             {} as GenerateAndStoreDailySuggestionUseCase
         );
 
@@ -152,7 +153,7 @@ describe("GetCookingPlanUseCase", () => {
         });
     });
 
-    it("returns ACCEPTED when there is already an accepted suggestion and does not regenerate", async () => {
+    it("returns SUGGESTION with status ACEPTADA when there is already an accepted suggestion and does not regenerate", async () => {
         const householdId = "home-1";
         const date = "2026-02-03";
         const slot = "CENA" as const;
@@ -189,10 +190,15 @@ describe("GetCookingPlanUseCase", () => {
 
         const out: any = await uc.execute({ householdId, date, slot });
 
-        expect(out.kind).toBe("ACCEPTED");
+        expect(out.kind).toBe("SUGGESTION");
         expect(out.status).toBe("ACEPTADA");
-        expect(out.acceptedRecipe).toEqual({ recipeId: "r2", name: "Rice Bowl" });
-        expect(out.alternatives.map((x: any) => x.recipeId)).toEqual(["r1"]);
+        expect(out.acceptedRecipeId).toBe("r2");
+
+        const accepted = out.recipes.find((x: any) => x.recipeId === out.acceptedRecipeId);
+        expect(accepted).toBeTruthy();
+        expect(accepted.name).toBe("Rice Bowl");
+
+        // Should not regenerate
         expect(generator.execute).not.toHaveBeenCalled();
     });
 });

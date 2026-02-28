@@ -25,13 +25,17 @@ export class PrismaSuggestionRepository implements SuggestionRepository {
     ): Promise<PersistedSuggestion> {
         const date = toDate(data.date);
 
-        const normalized = normalizeAcceptedRecipeId((data as any).acceptedRecipeId);
+        // Raw value as provided by the caller (could be undefined)
+        const raw = (data as any).acceptedRecipeId;
 
-        // 👇 Si viene null (o undefined), NO lo incluimos en update para no pisar el valor existente
-        const acceptedRecipeUpdate =
-            typeof (data as any).acceptedRecipeId === "string"
-                ? { acceptedRecipeId: normalized }
-                : {};
+        // Normalize for create / return safety
+        const normalized = normalizeAcceptedRecipeId(raw);
+
+        // ✅ Critical fix:
+        // Only update acceptedRecipeId if the caller explicitly provides a string.
+        // If it's undefined (typical "generate suggestion" flow), DO NOT touch DB value.
+        const acceptedRecipePatch =
+            typeof raw === "string" ? { acceptedRecipeId: normalized } : {};
 
         const upserted = await prisma.mealSuggestion.upsert({
             where: {
@@ -46,7 +50,8 @@ export class PrismaSuggestionRepository implements SuggestionRepository {
                 date,
                 slot: data.slot,
                 status: data.status as any,
-                acceptedRecipeId: normalized, // en create vale null
+                // On create it is safe to store normalized (string|null)
+                acceptedRecipeId: normalized,
                 recipes: {
                     create: data.recipes.map((r) => ({
                         recipeId: r.recipeId,
@@ -57,7 +62,8 @@ export class PrismaSuggestionRepository implements SuggestionRepository {
             },
             update: {
                 status: data.status as any,
-                ...acceptedRecipeUpdate,
+                // ✅ Don't wipe acceptedRecipeId accidentally
+                ...acceptedRecipePatch,
                 recipes: {
                     deleteMany: {},
                     create: data.recipes.map((r) => ({
@@ -86,6 +92,7 @@ export class PrismaSuggestionRepository implements SuggestionRepository {
                 })),
         };
     }
+
 
 
     async getDailySuggestion(

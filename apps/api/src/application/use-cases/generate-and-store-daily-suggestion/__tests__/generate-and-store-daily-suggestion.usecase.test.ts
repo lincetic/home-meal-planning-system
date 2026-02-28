@@ -19,7 +19,7 @@ class FakeSuggestionRepo implements SuggestionRepository {
     }
 
     async getDailySuggestion(): Promise<PersistedSuggestion | null> {
-        throw new Error("not needed");
+        return null;
     }
 
     async setStatus(_: string, __: SuggestionStatus): Promise<void> {
@@ -64,6 +64,7 @@ describe("GenerateAndStoreDailySuggestionUseCase", () => {
             date: "2026-02-03",
             slot: "CENA",
             status: "PROPUESTA",
+            acceptedRecipeId: null,
             recipes: [
                 { recipeId: "r2", name: "Rice Bowl", position: 0 },
                 { recipeId: "r1", name: "Milk & Cereal", position: 1 },

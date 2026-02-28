@@ -14,11 +14,12 @@ datasource db {
 }
 
 model Household {
-  id          String           @id
-  createdAt   DateTime         @default(now())
+  id          String            @id
+  createdAt   DateTime          @default(now())
   items       InventoryItem[]
   recipes     Recipe[]
   suggestions MealSuggestion[]
+  members     HouseholdMember[]
 }
 
 model InventoryItem {
@@ -121,4 +122,35 @@ model Ingredient {
 
   @@unique([normalizedName])
   @@index([normalizedName])
+}
+
+enum HouseholdRole {
+  OWNER
+  MEMBER
+}
+
+model User {
+  id           String   @id @default(uuid())
+  email        String   @unique
+  passwordHash String
+  name         String?
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  memberships HouseholdMember[]
+}
+
+model HouseholdMember {
+  id          String        @id @default(uuid())
+  userId      String
+  householdId String
+  role        HouseholdRole @default(MEMBER)
+  createdAt   DateTime      @default(now())
+
+  user      User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  household Household @relation(fields: [householdId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, householdId])
+  @@index([userId])
+  @@index([householdId])
 }

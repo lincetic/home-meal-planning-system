@@ -85,3 +85,23 @@ export function getPlanToday(body: {
 }) {
     return apiFetch<CookingPlan>(`/plan/today`, { method: "POST", body: JSON.stringify(body) });
 }
+
+export type AuthUser = { id: string; email: string; name?: string | null };
+
+export function register(body: { email: string; password: string; name?: string }) {
+  return apiFetch<{ user: AuthUser; accessToken: string }>(`/auth/register`, {
+    method: "POST",
+    body: JSON.stringify(body),
+  });
+}
+
+export function login(body: { email: string; password: string }) {
+  return apiFetch<{ user: AuthUser; accessToken: string }>(`/auth/login`, {
+    method: "POST",
+    body: JSON.stringify(body),
+  });
+}
+
+export function me() {
+  return apiFetch<{ user: AuthUser; households: Array<{ id: string; role: "OWNER" | "MEMBER" }> }>(`/auth/me`);
+}

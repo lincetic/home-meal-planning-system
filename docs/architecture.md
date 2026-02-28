@@ -244,7 +244,9 @@ Tests are executed using **Vitest**.
 
 
 ### Not implemented yet (future work)
-- User management and authentication
+- Refresh token rotation
+- Account registration endpoint
+- Password reset flow
 - Nutritional analysis
 
 ---

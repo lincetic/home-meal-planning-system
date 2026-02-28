@@ -34,6 +34,12 @@ class FakeSuggestionRepo implements SuggestionRepository {
         if (!s) throw new Error("Suggestion not found");
         this.byId.set(suggestionId, { ...s, status });
     }
+
+    async setAcceptedRecipe(suggestionId: string, recipeId: string): Promise<void> {
+        const s = this.byId.get(suggestionId);
+        if (!s) throw new Error("Suggestion not found");
+        this.byId.set(suggestionId, { ...s, acceptedRecipeId: recipeId });
+    }
 }
 
 class FakeInventoryRepo implements InventoryRepository {
@@ -133,7 +139,7 @@ describe("AcceptSuggestionUseCase", () => {
         const r2 = new Recipe("r2", "Rice Bowl", [
             { ingredientId: "rice", amount: Quantity.create(1) },
         ]);
-        const recipeRepo = new FakeRecipeRepo(new Map([[householdId, [r1, r2]]));
+        const recipeRepo = new FakeRecipeRepo(new Map([[householdId, [r1, r2]]]));
 
         const suggestion: PersistedSuggestion = {
             id: suggestionId,

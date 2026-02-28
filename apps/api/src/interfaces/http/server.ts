@@ -1,3 +1,18 @@
+import { requireHouseholdAccess } from "./auth/require-household-access";
+import jwt from "jsonwebtoken";
+import argon2 from "argon2";
+
+import {
+    zRegisterRequest,
+    zRegisterResponse,
+    zLoginRequest,
+    zLoginResponse,
+    zMeResponse,
+} from "@tfm/contracts";
+
+import { requireAuth } from "./auth/auth";
+import { assertHouseholdAccess } from "./auth/household-access";
+
 import Fastify from "fastify";
 import {
     zUpdateInventoryRequest,
@@ -113,8 +128,108 @@ const modifySuggestionUC = new ModifySuggestionUseCase(suggestionRepo, recipeRep
 const getCookingPlanUC = new GetCookingPlanUseCase(inventoryRepo, recipeRepo, suggestionRepo, generateAndStoreSuggestionUC);
 const getInventoryUC = new GetInventoryUseCase(inventoryRepo);
 
+app.post("/auth/register", async (request, reply) => {
+    const parsed = zRegisterRequest.safeParse(request.body);
+    if (!parsed.success) {
+        return reply.status(400).send({ error: "Invalid request", details: parsed.error.flatten() });
+    }
+
+    const { email, password, name } = parsed.data;
+
+    const existing = await prisma.user.findUnique({ where: { email }, select: { id: true } });
+    if (existing) return reply.status(409).send({ error: "Email already exists" });
+
+    const passwordHash = await argon2.hash(password);
+
+    const user = await prisma.user.create({
+        data: { email, passwordHash, name: name ?? null },
+        select: { id: true, email: true, name: true },
+    });
+
+    // Create a household for the user (not the demo one)
+    const household = await prisma.household.create({
+        data: { id: crypto.randomUUID() },
+        select: { id: true },
+    });
+
+    await prisma.householdMember.create({
+        data: { userId: user.id, householdId: household.id, role: "OWNER" },
+    });
+
+    const accessToken = jwt.sign({ sub: user.id }, process.env.JWT_SECRET!, {
+        expiresIn: process.env.JWT_EXPIRES_IN ?? "7d",
+    });
+
+    const res = { user, accessToken };
+    const ok = zRegisterResponse.safeParse(res);
+    if (!ok.success) return reply.status(500).send({ error: "Invalid response shape" });
+
+    return reply.status(201).send(ok.data);
+});
+
+app.post("/auth/login", async (request, reply) => {
+    const parsed = zLoginRequest.safeParse(request.body);
+    if (!parsed.success) {
+        return reply.status(400).send({ error: "Invalid request", details: parsed.error.flatten() });
+    }
+
+    const { email, password } = parsed.data;
+
+    const user = await prisma.user.findUnique({
+        where: { email },
+        select: { id: true, email: true, name: true, passwordHash: true },
+    });
+
+    if (!user) return reply.status(401).send({ error: "Invalid credentials" });
+
+    const okPass = await argon2.verify(user.passwordHash, password);
+    if (!okPass) return reply.status(401).send({ error: "Invalid credentials" });
+
+    const accessToken = jwt.sign({ sub: user.id }, process.env.JWT_SECRET!, {
+        expiresIn: process.env.JWT_EXPIRES_IN ?? "7d",
+    });
+
+    const res = { user: { id: user.id, email: user.email, name: user.name }, accessToken };
+    const ok = zLoginResponse.safeParse(res);
+    if (!ok.success) return reply.status(500).send({ error: "Invalid response shape" });
+
+    return reply.status(200).send(ok.data);
+});
+
+app.get("/auth/me", async (request, reply) => {
+    try {
+        const { userId } = requireAuth(request);
+
+        const user = await prisma.user.findUnique({
+            where: { id: userId },
+            select: { id: true, email: true, name: true },
+        });
+        if (!user) return reply.status(401).send({ error: "Unauthorized" });
+
+        const memberships = await prisma.householdMember.findMany({
+            where: { userId },
+            select: { householdId: true, role: true },
+        });
+
+        const res = {
+            user,
+            households: memberships.map((m) => ({ id: m.householdId, role: m.role })),
+        };
+
+        const ok = zMeResponse.safeParse(res);
+        if (!ok.success) return reply.status(500).send({ error: "Invalid response shape" });
+
+        return reply.status(200).send(ok.data);
+    } catch (e: any) {
+        const msg = String(e?.message ?? "");
+        if (msg === "AUTH_MISSING" || msg === "AUTH_INVALID") {
+            return reply.status(401).send({ error: "Unauthorized" });
+        }
+        return reply.status(500).send({ error: "Unexpected error" });
+    }
+});
+
 app.post("/inventory/update", async (request, reply) => {
-    // 1) Validación runtime con contracts
     const parsedReq = zUpdateInventoryRequest.safeParse(request.body);
     if (!parsedReq.success) {
         return reply.status(400).send({
@@ -123,38 +238,82 @@ app.post("/inventory/update", async (request, reply) => {
         });
     }
 
-    // 2) Contract -> UseCase input
-    const input = toUpdateInventoryInput(parsedReq.data);
+    try {
+        // 🔐 Auth
+        const { userId } = requireAuth(request);
+        await assertHouseholdAccess(userId, parsedReq.data.householdId);
 
-    // 3) Ejecutar caso de uso
-    const out = await updateInventoryUC.execute(input);
+        const input = toUpdateInventoryInput(parsedReq.data);
+        const out = await updateInventoryUC.execute(input);
 
-    // 4) UseCase output -> Contract response
-    const response = toUpdateInventoryResponse(out);
+        const response = toUpdateInventoryResponse(out);
+        const parsedRes = zUpdateInventoryResponse.safeParse(response);
 
-    // 5) Validar response shape (extra calidad)
-    const parsedRes = zUpdateInventoryResponse.safeParse(response);
-    if (!parsedRes.success) {
-        request.log.error(parsedRes.error, "Invalid response shape");
-        return reply.status(500).send({ error: "Invalid response shape" });
+        if (!parsedRes.success) {
+            request.log.error(parsedRes.error, "Invalid response shape");
+            return reply.status(500).send({ error: "Invalid response shape" });
+        }
+
+        return reply.status(200).send(parsedRes.data);
+    } catch (e: any) {
+        const msg = String(e?.message ?? "");
+
+        if (msg === "AUTH_MISSING" || msg === "AUTH_INVALID") {
+            return reply.status(401).send({ error: "Unauthorized" });
+        }
+
+        if (msg === "HOUSEHOLD_FORBIDDEN") {
+            return reply.status(403).send({ error: "Forbidden" });
+        }
+
+        if (msg.includes("negative") || msg.includes("insufficient")) {
+            return reply.status(409).send({ error: msg });
+        }
+
+        return reply.status(500).send({ error: "Unexpected error" });
     }
-
-    return reply.status(200).send(parsedRes.data);
 });
+
 
 app.get("/inventory", async (request, reply) => {
     const parsed = zGetInventoryQuery.safeParse(request.query);
     if (!parsed.success) {
-        return reply.status(400).send({ error: "Invalid query", details: parsed.error.flatten() });
+        return reply.status(400).send({
+            error: "Invalid query",
+            details: parsed.error.flatten(),
+        });
     }
 
-    const out = await getInventoryUC.execute({ householdId: parsed.data.householdId });
-    request.log.info(out, "GetInventory out");
-    const ok = zGetInventoryResponse.safeParse(out);
-    if (!ok.success) return reply.status(500).send({ error: "Invalid response shape" });
+    try {
+        // 🔐 Auth
+        const { userId } = requireAuth(request);
+        await assertHouseholdAccess(userId, parsed.data.householdId);
 
-    return reply.status(200).send(ok.data);
+        const out = await getInventoryUC.execute({
+            householdId: parsed.data.householdId,
+        });
+
+        const ok = zGetInventoryResponse.safeParse(out);
+        if (!ok.success) {
+            return reply.status(500).send({ error: "Invalid response shape" });
+        }
+
+        return reply.status(200).send(ok.data);
+    } catch (e: any) {
+        const msg = String(e?.message ?? "");
+
+        if (msg === "AUTH_MISSING" || msg === "AUTH_INVALID") {
+            return reply.status(401).send({ error: "Unauthorized" });
+        }
+
+        if (msg === "HOUSEHOLD_FORBIDDEN") {
+            return reply.status(403).send({ error: "Forbidden" });
+        }
+
+        return reply.status(500).send({ error: "Unexpected error" });
+    }
 });
+
 
 app.post("/suggestions/generate", async (request, reply) => {
     const parsedReq = zGenerateDailySuggestionPersistedRequest.safeParse(request.body);
@@ -258,7 +417,7 @@ app.post("/suggestions/accept", async (request, reply) => {
         if (String(e?.message).includes("not found")) return reply.status(404).send({ error: e.message });
         if (String(e?.message).includes("negative") || String(e?.message).includes("insufficient"))
             return reply.status(409).send({ error: e.message });
-        if (String(e?.message).includes("not part of the suggestion")) 
+        if (String(e?.message).includes("not part of the suggestion"))
             return reply.status(400).send({ error: e.message });
         return reply.status(500).send({ error: "Unexpected error" });
     }
@@ -394,18 +553,40 @@ app.post("/plan/today", async (request, reply) => {
     }
 
     try {
+        await requireHouseholdAccess(request, parsedReq.data.householdId);
         const out = await getCookingPlanUC.execute(parsedReq.data);
         const ok = zGetCookingPlanResponse.safeParse(out);
+        const { userId } = requireAuth(request);
+        await assertHouseholdAccess(userId, parsedReq.data.householdId);
+
         if (!ok.success) return reply.status(500).send({ error: "Invalid response shape" });
         return reply.status(200).send(ok.data);
     } catch (e: any) {
-        return reply.status(500).send({ error: String(e?.message ?? "Unexpected error") });
+        const msg = String(e?.message ?? "Unexpected error");
+        request.log.error({ msg, e }, "plan/today failed");
+
+        if (msg === "AUTH_MISSING" || msg === "AUTH_INVALID") {
+            return reply.status(401).send({ error: "Unauthorized" });
+        }
+
+        if (msg === "HOUSEHOLD_FORBIDDEN") {
+            return reply.status(403).send({ error: "Forbidden" });
+        }
+
+        return reply.status(500).send({ error: msg });
     }
 });
 
+export function buildApp() {
+    return app;
+}
 
-async function start() {
+export async function start() {
     await app.listen({ port: 3000, host: "127.0.0.1" });
 }
 
-start();
+
+if (process.env.NODE_ENV !== "test") {
+    start();
+}
+

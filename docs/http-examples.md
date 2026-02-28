@@ -1,12 +1,10 @@
 # HTTP API -- Examples
 
 This document contains example HTTP requests and responses for the
-current API endpoints.\
-All examples are **internally consistent**, meaning that following them
-step by step will always produce non-empty, meaningful results.
+current API endpoints.
 
-> ⚠️ Ingredient IDs are NOT hardcoded anymore.\
-> They must be obtained from the catalog using `/ingredients/search`.
+All examples are internally consistent and reflect the secured API
+(JWT authentication required for protected routes).
 
 ------------------------------------------------------------------------
 
@@ -14,51 +12,62 @@ step by step will always produce non-empty, meaningful results.
 
 Before running these examples:
 
-``` bash
+```bash
 pnpm -C apps/api seed:ingredients
 pnpm -C apps/api seed:recipes
 ```
 
 Household used in all examples:
 
-    550e8400-e29b-41d4-a716-446655440000
+550e8400-e29b-41d4-a716-446655440000
 
-Recipes (fixed IDs from seed):
+# 1️⃣ Authentication (REQUIRED)
 
--   Milk & Cereal → `aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa`
--   Rice Bowl → `bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb`
+All protected endpoints require a valid JWT.
 
-------------------------------------------------------------------------
+## Login
+```powershell
+$loginBody = @{
+  email = "demo@tfm.local"
+  password = "Password123!"
+} | ConvertTo-Json
 
-# 1️⃣ Find Ingredient IDs from Catalog
+$loginResponse = Invoke-RestMethod `
+  -Method Post `
+  -Uri http://127.0.0.1:3000/auth/login `
+  -ContentType "application/json" `
+  -Body $loginBody
+
+$token = $loginResponse.accessToken
+```
+All subsequent protected calls must include:
+```powershell
+-Headers @{ Authorization = "Bearer $token" }
+```
+
+2️⃣ Find Ingredient IDs from Catalog
 
 ## Search Milk
-
-``` powershell
-Invoke-RestMethod -Method Get -Uri "http://127.0.0.1:3000/ingredients/search?q=leche&limit=5" |
-  ConvertTo-Json -Depth 20
+```powershell
+Invoke-RestMethod `
+  -Method Get `
+  -Uri "http://127.0.0.1:3000/ingredients/search?q=leche&limit=5"
 ```
-
-Copy the returned `id`.
-
-------------------------------------------------------------------------
+Copy the returned id.
 
 ## Search Rice
-
-``` powershell
-Invoke-RestMethod -Method Get -Uri "http://127.0.0.1:3000/ingredients/search?q=arroz&limit=5" |
-  ConvertTo-Json -Depth 20
+```powershell
+Invoke-RestMethod `
+  -Method Get `
+  -Uri "http://127.0.0.1:3000/ingredients/search?q=arroz&limit=5"
 ```
+Copy the returned id.
 
-Copy the returned `id`.
+# 3️⃣ POST /inventory/update (Protected)
 
-------------------------------------------------------------------------
+Adds ingredients to inventory.
 
-# 2️⃣ POST /inventory/update
-
-Adds ingredients to inventory using real catalog IDs.
-
-``` powershell
+```powershell
 $householdId = "550e8400-e29b-41d4-a716-446655440000"
 $milkId = "<PASTE_MILK_ID>"
 $riceId = "<PASTE_RICE_ID>"
@@ -80,179 +89,145 @@ $body = @{
   )
 } | ConvertTo-Json -Depth 10
 
-Invoke-RestMethod -Method Post `
+Invoke-RestMethod `
+  -Method Post `
   -Uri http://127.0.0.1:3000/inventory/update `
+  -Headers @{ Authorization = "Bearer $token" } `
   -ContentType "application/json" `
-  -Body $body |
-  ConvertTo-Json -Depth 20
+  -Body $body
 ```
 
-Resulting inventory: - Milk: 2 - Rice: 1
-
-------------------------------------------------------------------------
-
-# 3️⃣ POST /suggestions/generate
+# 4️⃣ POST /suggestions/generate (Protected)
 
 Generates and persists a daily suggestion.
-
-``` powershell
+```powershell
 $body = @{
-  householdId = "550e8400-e29b-41d4-a716-446655440000"
+  householdId = $householdId
   date = "2026-02-03"
   slot = "CENA"
   maxSuggestions = 3
-  expiringDaysThreshold = 3
-} | ConvertTo-Json -Depth 5
+} | ConvertTo-Json
 
 $response = Invoke-RestMethod `
   -Method Post `
   -Uri http://127.0.0.1:3000/suggestions/generate `
+  -Headers @{ Authorization = "Bearer $token" } `
   -ContentType "application/json" `
   -Body $body
 
-$response | ConvertTo-Json -Depth 20
+$response
 ```
 
-Save the `suggestionId` returned.
+Save the suggestionId.
 
-------------------------------------------------------------------------
-
-# 4️⃣ GET /suggestions/daily
-
-``` powershell
+# 5️⃣ GET /suggestions/daily (Protected)
+```powershell
 Invoke-RestMethod `
   -Method Get `
-  -Uri "http://127.0.0.1:3000/suggestions/daily?householdId=550e8400-e29b-41d4-a716-446655440000&date=2026-02-03&slot=CENA" |
-  ConvertTo-Json -Depth 20
-```
-
-Status should be `PROPUESTA`.
-
-------------------------------------------------------------------------
-
-# 5️⃣ POST /suggestions/modify
-
-``` powershell
+  -Uri "http://127.0.0.1:3000/suggestions/daily?householdId=$householdId&date=2026-02-03&slot=CENA" `
+  -Headers @{ Authorization = "Bearer $token" }
+# 6️⃣ POST /suggestions/modify (Protected)
 $body = @{
   suggestionId = "<PASTE_SUGGESTION_ID>"
   recipeIds = @(
     "bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb"
   )
-} | ConvertTo-Json -Depth 5
+} | ConvertTo-Json
 
 Invoke-RestMethod `
   -Method Post `
   -Uri http://127.0.0.1:3000/suggestions/modify `
+  -Headers @{ Authorization = "Bearer $token" } `
   -ContentType "application/json" `
-  -Body $body |
-  ConvertTo-Json -Depth 20
+  -Body $body
 ```
 
-------------------------------------------------------------------------
-
-# 6️⃣ POST /suggestions/accept
-
-``` powershell
+# 7️⃣ POST /suggestions/accept (Protected)
+```powershell
 $body = @{
   suggestionId = "<PASTE_SUGGESTION_ID>"
-} | ConvertTo-Json -Depth 3
+} | ConvertTo-Json
 
 Invoke-RestMethod `
   -Method Post `
   -Uri http://127.0.0.1:3000/suggestions/accept `
+  -Headers @{ Authorization = "Bearer $token" } `
   -ContentType "application/json" `
-  -Body $body |
-  ConvertTo-Json -Depth 20
+  -Body $body
 ```
 
-------------------------------------------------------------------------
-
-# 7️⃣ POST /shopping-list/from-recipes
-
-``` powershell
+# 8️⃣ POST /shopping-list/from-recipes (Protected)
+```powershell
 $body = @{
-  householdId = "550e8400-e29b-41d4-a716-446655440000"
+  householdId = $householdId
   recipeIds = @(
     "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa",
     "bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb"
   )
-} | ConvertTo-Json -Depth 5
+} | ConvertTo-Json
 
 Invoke-RestMethod `
   -Method Post `
   -Uri http://127.0.0.1:3000/shopping-list/from-recipes `
+  -Headers @{ Authorization = "Bearer $token" } `
   -ContentType "application/json" `
-  -Body $body |
-  ConvertTo-Json -Depth 20
+  -Body $body
 ```
 
-------------------------------------------------------------------------
-
-# Notes
-
--   Ingredient IDs are obtained dynamically from the catalog.
--   All identifiers are validated as UUIDs.
--   Inventory and recipes are persisted using PostgreSQL (Prisma).
--   Accepting a suggestion consumes inventory.
--   Modifying does NOT consume inventory.
-
-------------------------------------------------------------------------
-
-# 8️⃣ POST /plan/today
+# 9️⃣ POST /plan/today (Protected)
 
 ## Example: SUGGESTION (not accepted)
-``` powershell
+```powershell
 $body = @{
-  householdId = "550e8400-e29b-41d4-a716-446655440000"
+  householdId = $householdId
   date = "2026-02-03"
   slot = "CENA"
-  maxSuggestions = 3
-} | ConvertTo-Json -Depth 5
+} | ConvertTo-Json
 
 Invoke-RestMethod `
   -Method Post `
   -Uri http://127.0.0.1:3000/plan/today `
+  -Headers @{ Authorization = "Bearer $token" } `
   -ContentType "application/json" `
-  -Body $body |
-  ConvertTo-Json -Depth 20
+  -Body $body
 ```
 
-## Example: SUGGESTION (accepted)
+## After acceptance
 
-``` powershell
-$body = @{
-  suggestionId = "32afe45b-7753-4fd0-bc0c-0aac5c254305"
-  recipeId = "cccccccc-cccc-cccc-cccc-cccccccccccc"
-} | ConvertTo-Json -Depth 5
-
+Call again:
+```powershell
 Invoke-RestMethod `
   -Method Post `
-  -Uri http://127.0.0.1:3000/suggestions/accept `
+  -Uri http://127.0.0.1:3000/plan/today `
+  -Headers @{ Authorization = "Bearer $token" } `
   -ContentType "application/json" `
-  -Body $body |
-  ConvertTo-Json -Depth 20
+  -Body $body
 ```
 
-## Example: NEEDS_SHOPPING
-
+Response will include:
 ```json
 {
-  "kind": "NEEDS_SHOPPING",
-  "householdId": "550e8400-e29b-41d4-a716-446655440000",
-  "date": "2026-02-05",
-  "slot": "CENA",
-  "targetRecipe": {
-    "recipeId": "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa",
-    "name": "Milk & Cereal"
-  },
-  "shoppingList": {
-    "items": [
-      {
-        "ingredientId": "milk-id",
-        "missingAmount": 1
-      }
-    ]
-  }
+  "kind": "SUGGESTION",
+  "status": "ACEPTADA",
+  "acceptedRecipeId": "..."
 }
 ```
 
+# Authorization Behavior
+
+- Missing token → 401
+- Invalid token → 401
+- Wrong householdId → 403
+- Valid token + correct household → 200
+
+# Notes
+
+All IDs are UUID.
+
+Passwords are hashed using Argon2.
+
+Household membership is validated on every protected endpoint.
+
+Accepting a suggestion consumes inventory.
+
+Modifying a suggestion does NOT consume inventory.
