@@ -16,16 +16,26 @@ Before running these examples:
 pnpm -C apps/api seed:ingredients
 pnpm -C apps/api seed:recipes
 ```
+## Demo household (seed)
 
-Household used in all examples:
+The seed scripts create a demo household:
 
+```
 550e8400-e29b-41d4-a716-446655440000
+```
+This is the household used by the seeded demo user.
+When you register a new user, the backend creates a new household for that user and clones demo recipes into it.
 
-# 1️⃣ Authentication (REQUIRED)
+Notes:
+
+- You can also register a new user and use the household returned by `/auth/me`.
+- The demo seed user is `demo@tfm.local` (see seed scripts).
+
+# 1️⃣ Authentication (REQUIRED for protected routes)
 
 All protected endpoints require a valid JWT.
 
-## Login
+## Option A — Login with seeded demo user
 ```powershell
 $loginBody = @{
   email = "demo@tfm.local"
@@ -40,12 +50,43 @@ $loginResponse = Invoke-RestMethod `
 
 $token = $loginResponse.accessToken
 ```
+
+## Option B — Register a new user (creates a new household)
+```powershell
+$registerBody = @{
+  email = "new-user@tfm.local"
+  password = "Password123!"
+  name = "New User"
+} | ConvertTo-Json
+
+$registerResponse = Invoke-RestMethod `
+  -Method Post `
+  -Uri http://127.0.0.1:3000/auth/register `
+  -ContentType "application/json" `
+  -Body $registerBody
+
+$token = $registerResponse.accessToken
+```
+
+## /auth/me — get householdId for the authenticated user
+```powershell
+$me = Invoke-RestMethod `
+  -Method Get `
+  -Uri http://127.0.0.1:3000/auth/me `
+  -Headers @{ Authorization = "Bearer $token" }
+
+$householdId = $me.households[0].id
+$householdId
+```
+
 All subsequent protected calls must include:
 ```powershell
 -Headers @{ Authorization = "Bearer $token" }
 ```
 
-2️⃣ Find Ingredient IDs from Catalog
+# 2️⃣ Find Ingredient IDs from Catalog (PUBLIC)
+
+These endpoints are public in the MVP.
 
 ## Search Milk
 ```powershell
@@ -126,7 +167,12 @@ Invoke-RestMethod `
   -Method Get `
   -Uri "http://127.0.0.1:3000/suggestions/daily?householdId=$householdId&date=2026-02-03&slot=CENA" `
   -Headers @{ Authorization = "Bearer $token" }
+```
+
 # 6️⃣ POST /suggestions/modify (Protected)
+
+Overwrite the recipes of a suggestion (does NOT consume inventory).
+```powershell
 $body = @{
   suggestionId = "<PASTE_SUGGESTION_ID>"
   recipeIds = @(
@@ -143,9 +189,12 @@ Invoke-RestMethod `
 ```
 
 # 7️⃣ POST /suggestions/accept (Protected)
+
+Accepts a suggestion and (optionally) selects which recipe to accept.
 ```powershell
 $body = @{
   suggestionId = "<PASTE_SUGGESTION_ID>"
+  recipeId = "<PASTE_RECIPE_ID_FROM_SUGGESTION>"
 } | ConvertTo-Json
 
 Invoke-RestMethod `
@@ -176,7 +225,7 @@ Invoke-RestMethod `
 
 # 9️⃣ POST /plan/today (Protected)
 
-## Example: SUGGESTION (not accepted)
+## Example: SUGGESTION (not accepted yet)
 ```powershell
 $body = @{
   householdId = $householdId
@@ -222,12 +271,9 @@ Response will include:
 
 # Notes
 
-All IDs are UUID.
-
-Passwords are hashed using Argon2.
-
-Household membership is validated on every protected endpoint.
-
-Accepting a suggestion consumes inventory.
-
-Modifying a suggestion does NOT consume inventory.
+- All IDs are UUID strings.
+- Dates are `YYYY-MM-DD`.
+- Passwords are hashed using Argon2.
+- Household membership is validated on protected endpoints.
+- Accepting a suggestion consumes inventory.
+- Modifying a suggestion does NOT consume inventory.

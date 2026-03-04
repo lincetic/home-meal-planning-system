@@ -9,12 +9,12 @@ export const zEmail = z.string().email();
 /**
  * MVP password rules.
  * - min 8 chars
- * - max 72 chars (safe with common hashing strategies)
+ * - max 72 chars (safe upper bound for many password hashers)
  */
 export const zPassword = z.string().min(8).max(72);
 
 /**
- * Auth user payload returned by the API.
+ * Public user payload returned by the API.
  */
 export const zAuthUser = z.object({
     id: zId,

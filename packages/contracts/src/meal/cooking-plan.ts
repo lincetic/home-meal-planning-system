@@ -22,6 +22,23 @@ const zShoppingItem = z.object({
     missingAmount: z.number().positive(),
 });
 
+// ✅ Opción A: respuesta explícita cuando ya existe una sugerencia aceptada
+export const zCookingPlanAccepted = z.object({
+    kind: z.literal("ACCEPTED"),
+    suggestionId: zId,
+    status: z.literal("ACEPTADA"),
+    householdId: zId,
+    date: zDateYYYYMMDD,
+    slot: zMealSlot,
+
+    acceptedRecipe: z.object({
+        recipeId: zId,
+        name: z.string().min(1),
+    }),
+
+    alternatives: z.array(zSuggestedRecipe).max(50),
+});
+
 export const zCookingPlanSuggestion = z.object({
     kind: z.literal("SUGGESTION"),
     suggestionId: zId,
@@ -30,10 +47,9 @@ export const zCookingPlanSuggestion = z.object({
     date: zDateYYYYMMDD,
     slot: zMealSlot,
 
-    /**
-     * When status is "ACEPTADA", this should contain the accepted recipeId.
-     * It can be null/undefined for non-accepted suggestions.
-     */
+    // Si el backend lo envía, el front debe soportarlo.
+    // Ojo: aquí NO “forzamos” que exista cuando status === ACEPTADA,
+    // eso lo garantiza la lógica de backend + tests.
     acceptedRecipeId: zId.nullable().optional(),
 
     recipes: z.array(zSuggestedRecipe).min(1).max(3),
@@ -56,6 +72,7 @@ export const zCookingPlanNeedsShopping = z.object({
 export const zGetCookingPlanResponse = z.union([
     zCookingPlanSuggestion,
     zCookingPlanNeedsShopping,
+    zCookingPlanAccepted, // ✅ CRÍTICO: antes faltaba
 ]);
 
 export type GetCookingPlanRequest = z.infer<typeof zGetCookingPlanRequest>;

@@ -32,6 +32,11 @@ export async function apiFetch<T>(path: string, init?: RequestInit): Promise<T> 
     const text = await res.text();
     const data = text ? JSON.parse(text) : null;
 
-    if (!res.ok) throw new Error(data?.error ?? `HTTP ${res.status}`);
+    if (!res.ok) {
+        // Si el token ya no vale, limpiamos sesión
+        if (res.status === 401) clearAccessToken();
+        throw new Error(data?.error ?? `HTTP ${res.status}`);
+    }
+
     return data as T;
 }

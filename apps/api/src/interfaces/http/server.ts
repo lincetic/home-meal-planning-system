@@ -1,4 +1,3 @@
-import { requireHouseholdAccess } from "./auth/require-household-access";
 import jwt from "jsonwebtoken";
 import argon2 from "argon2";
 
@@ -128,6 +127,52 @@ const modifySuggestionUC = new ModifySuggestionUseCase(suggestionRepo, recipeRep
 const getCookingPlanUC = new GetCookingPlanUseCase(inventoryRepo, recipeRepo, suggestionRepo, generateAndStoreSuggestionUC);
 const getInventoryUC = new GetInventoryUseCase(inventoryRepo);
 
+const DEFAULT_HOUSEHOLD_ID = "550e8400-e29b-41d4-a716-446655440000";
+
+async function resolveDemoHouseholdId(): Promise<string | null> {
+    // 1) Preferimos el ID conocido si realmente tiene recetas
+    const countDefault = await prisma.recipe.count({
+        where: { householdId: DEFAULT_HOUSEHOLD_ID },
+    });
+    if (countDefault > 0) return DEFAULT_HOUSEHOLD_ID;
+
+    // 2) Si no, buscamos cualquier household que tenga recetas
+    const any = await prisma.recipe.findFirst({
+        select: { householdId: true },
+    });
+    return any?.householdId ?? null;
+}
+
+async function cloneDemoRecipesToHousehold(targetHouseholdId: string) {
+    const demoHouseholdId = await resolveDemoHouseholdId();
+    if (!demoHouseholdId) return; // no hay recetas en BD para clonar
+
+    const demoRecipes = await prisma.recipe.findMany({
+        where: { householdId: demoHouseholdId },
+        include: { ingredients: true },
+    });
+
+    if (demoRecipes.length === 0) return;
+
+    for (const r of demoRecipes) {
+        const newRecipeId = crypto.randomUUID();
+
+        await prisma.recipe.create({
+            data: {
+                id: newRecipeId,
+                householdId: targetHouseholdId,
+                name: r.name,
+                ingredients: {
+                    create: r.ingredients.map((i) => ({
+                        ingredientId: i.ingredientId,
+                        amount: i.amount,
+                    })),
+                },
+            },
+        });
+    }
+}
+
 app.post("/auth/register", async (request, reply) => {
     const parsed = zRegisterRequest.safeParse(request.body);
     if (!parsed.success) {
@@ -141,26 +186,33 @@ app.post("/auth/register", async (request, reply) => {
 
     const passwordHash = await argon2.hash(password);
 
-    const user = await prisma.user.create({
-        data: { email, passwordHash, name: name ?? null },
-        select: { id: true, email: true, name: true },
+    const created = await prisma.$transaction(async (tx) => {
+        const user = await tx.user.create({
+            data: { email, passwordHash, name: name ?? null },
+            select: { id: true, email: true, name: true },
+        });
+
+        const household = await tx.household.create({
+            data: { id: crypto.randomUUID() },
+            select: { id: true },
+        });
+
+        await tx.householdMember.create({
+            data: { userId: user.id, householdId: household.id, role: "OWNER" },
+        });
+
+        return { user, household };
     });
 
-    // Create a household for the user (not the demo one)
-    const household = await prisma.household.create({
-        data: { id: crypto.randomUUID() },
-        select: { id: true },
-    });
+    // Clonación fuera o dentro de transaction: aquí fuera está OK (es “best effort”)
+    // pero si quieres 100% atomicidad, se mete dentro del $transaction usando tx en helpers.
+    await cloneDemoRecipesToHousehold(created.household.id);
 
-    await prisma.householdMember.create({
-        data: { userId: user.id, householdId: household.id, role: "OWNER" },
-    });
-
-    const accessToken = jwt.sign({ sub: user.id }, process.env.JWT_SECRET!, {
+    const accessToken = jwt.sign({ sub: created.user.id }, process.env.JWT_SECRET!, {
         expiresIn: process.env.JWT_EXPIRES_IN ?? "7d",
     });
 
-    const res = { user, accessToken };
+    const res = { user: created.user, accessToken };
     const ok = zRegisterResponse.safeParse(res);
     if (!ok.success) return reply.status(500).send({ error: "Invalid response shape" });
 
@@ -553,13 +605,17 @@ app.post("/plan/today", async (request, reply) => {
     }
 
     try {
-        await requireHouseholdAccess(request, parsedReq.data.householdId);
-        const out = await getCookingPlanUC.execute(parsedReq.data);
-        const ok = zGetCookingPlanResponse.safeParse(out);
+        // 🔐 Auth + household access FIRST
         const { userId } = requireAuth(request);
         await assertHouseholdAccess(userId, parsedReq.data.householdId);
 
+        // Business
+        const out = await getCookingPlanUC.execute(parsedReq.data);
+
+        // Contract validation
+        const ok = zGetCookingPlanResponse.safeParse(out);
         if (!ok.success) return reply.status(500).send({ error: "Invalid response shape" });
+
         return reply.status(200).send(ok.data);
     } catch (e: any) {
         const msg = String(e?.message ?? "Unexpected error");
@@ -571,6 +627,11 @@ app.post("/plan/today", async (request, reply) => {
 
         if (msg === "HOUSEHOLD_FORBIDDEN") {
             return reply.status(403).send({ error: "Forbidden" });
+        }
+
+        // Si tu UC lanza "No recipes available", esto es un 409 razonable (o 400)
+        if (msg.includes("No recipes available")) {
+            return reply.status(409).send({ error: msg });
         }
 
         return reply.status(500).send({ error: msg });

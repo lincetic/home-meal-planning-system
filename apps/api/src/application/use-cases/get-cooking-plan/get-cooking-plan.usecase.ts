@@ -6,6 +6,11 @@ import { GenerateAndStoreDailySuggestionUseCase } from "../generate-and-store-da
 
 type MealSlot = "DESAYUNO" | "COMIDA" | "CENA";
 
+function normalizeAcceptedRecipeId(v: unknown): string | null {
+    if (typeof v === "string" && v.trim().length > 0) return v.trim();
+    return null;
+}
+
 export class GetCookingPlanUseCase {
     constructor(
         private readonly inventoryRepo: InventoryRepository,
@@ -20,35 +25,65 @@ export class GetCookingPlanUseCase {
         slot: MealSlot;
         maxSuggestions?: number;
     }) {
-        // 0) If there is already an accepted suggestion for this day+slot, return it
+        // 0) If there is already a persisted suggestion, reuse it
         const existing = await this.suggestionRepo.getDailySuggestion(
             input.householdId,
             input.date,
             input.slot
         );
 
-        if (existing && existing.status === "ACEPTADA") {
-            const acceptedId =
-                typeof (existing as any).acceptedRecipeId === "string" &&
-                    (existing as any).acceptedRecipeId.trim().length > 0
-                    ? ((existing as any).acceptedRecipeId as string)
-                    : null;
-
-            // Si está ACEPTADA, acceptedRecipeId es obligatorio.
-            // No hagas fallback a la primera receta porque eso "miente" y marca Milk.
-            if (!acceptedId) {
-                throw new Error("Accepted suggestion is missing acceptedRecipeId");
-            }
-
-            // Normaliza recipes a [{recipeId,name,position}]
+        if (existing) {
             const sorted = existing.recipes.slice().sort((a, b) => a.position - b.position);
 
-            // acceptedRecipeId debe estar dentro de recipes
-            const exists = sorted.some((r) => r.recipeId === acceptedId);
-            if (!exists) {
-                throw new Error("Accepted recipeId not found among stored suggestion recipes");
+            // If DB says ACCEPTED but acceptedRecipeId is missing -> DB is inconsistent.
+            // We "self-heal": downgrade to PROPUESTA and continue as a normal suggestion.
+            if (existing.status === "ACEPTADA") {
+                const acceptedId = normalizeAcceptedRecipeId((existing as any).acceptedRecipeId);
+
+                // acceptedRecipeId must exist AND be part of recipes
+                const acceptedExists = acceptedId
+                    ? sorted.some((r) => r.recipeId === acceptedId)
+                    : false;
+
+                if (!acceptedId || !acceptedExists) {
+                    // Repair status so it doesn't keep failing forever.
+                    // We don't lie by picking a recipe; we simply mark it as not accepted.
+                    await this.suggestionRepo.setStatus(existing.id, "PROPUESTA" as any);
+
+                    return {
+                        kind: "SUGGESTION" as const,
+                        suggestionId: existing.id,
+                        status: "PROPUESTA" as const,
+                        householdId: existing.householdId,
+                        date: existing.date,
+                        slot: existing.slot,
+                        acceptedRecipeId: null,
+                        recipes: sorted.map((r, idx) => ({
+                            recipeId: r.recipeId,
+                            name: r.name,
+                            position: typeof r.position === "number" ? r.position : idx,
+                        })),
+                    };
+                }
+
+                // Accepted and consistent -> return suggestion with acceptedRecipeId
+                return {
+                    kind: "SUGGESTION" as const,
+                    suggestionId: existing.id,
+                    status: existing.status,
+                    householdId: existing.householdId,
+                    date: existing.date,
+                    slot: existing.slot,
+                    acceptedRecipeId: acceptedId,
+                    recipes: sorted.map((r, idx) => ({
+                        recipeId: r.recipeId,
+                        name: r.name,
+                        position: typeof r.position === "number" ? r.position : idx,
+                    })),
+                };
             }
 
+            // Not accepted -> return as-is (persisted suggestion)
             return {
                 kind: "SUGGESTION" as const,
                 suggestionId: existing.id,
@@ -56,7 +91,7 @@ export class GetCookingPlanUseCase {
                 householdId: existing.householdId,
                 date: existing.date,
                 slot: existing.slot,
-                acceptedRecipeId: acceptedId,
+                acceptedRecipeId: normalizeAcceptedRecipeId((existing as any).acceptedRecipeId),
                 recipes: sorted.map((r, idx) => ({
                     recipeId: r.recipeId,
                     name: r.name,
@@ -65,16 +100,15 @@ export class GetCookingPlanUseCase {
             };
         }
 
-
         // 1) Load inventory
         const inventory = await this.inventoryRepo.getByHouseholdId(input.householdId);
-        const inv = inventory ?? new Inventory(); // inventario vacío
+        const inv = inventory ?? new Inventory();
 
         // 2) Load recipes
         const recipes = await this.recipeRepo.listByHouseholdId(input.householdId);
         if (recipes.length === 0) throw new Error("No recipes available");
 
-        // 3) Determine cookable recipes based on current inventory
+        // 3) Cookable recipes
         const cookable = recipes.filter((r) =>
             r.getIngredients().every((ing) => {
                 const have = inv.getItem(ing.ingredientId)?.getQuantity().getValue() ?? 0;
@@ -83,7 +117,7 @@ export class GetCookingPlanUseCase {
             })
         );
 
-        // 4) If cookable exists -> generate/upsert stored suggestion and return
+        // 4) Cookable exists -> generate and store suggestion
         if (cookable.length > 0) {
             const persisted = await this.generateAndStoreSuggestionUC.execute({
                 householdId: input.householdId,
@@ -99,20 +133,21 @@ export class GetCookingPlanUseCase {
                 householdId: persisted.householdId,
                 date: persisted.date,
                 slot: persisted.slot,
-                acceptedRecipeId: (persisted as any).acceptedRecipeId ?? null,
+                acceptedRecipeId: normalizeAcceptedRecipeId((persisted as any).acceptedRecipeId),
                 recipes: persisted.recipes,
             };
-
         }
 
-        // 5) No cookable -> choose best candidate (minimal missing)
-        let best: {
-            recipeId: string;
-            name: string;
-            missingCount: number;
-            missingTotal: number;
-            missing: Array<{ ingredientId: string; missingAmount: number }>;
-        } | null = null;
+        // 5) No cookable -> minimal shopping list
+        let best:
+            | {
+                recipeId: string;
+                name: string;
+                missingCount: number;
+                missingTotal: number;
+                missing: Array<{ ingredientId: string; missingAmount: number }>;
+            }
+            | null = null;
 
         for (const r of recipes) {
             const missing: Array<{ ingredientId: string; missingAmount: number }> = [];

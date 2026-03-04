@@ -54,19 +54,20 @@ async function main() {
 
     // ====== Recipes designed for a clear demo ======
     // IDs: keep stable for docs/testing
+    // IDs válidos UUIDv4 (mantienen el “look” pero pasan zod.uuid())
     const recipes: SeedRecipe[] = [
         {
-            id: "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa",
+            id: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
             name: "Milk & Cereal",
             ingredients: [{ name: "Leche", category: "Lácteos", amount: 1 }],
         },
         {
-            id: "bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb",
+            id: "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb",
             name: "Rice Bowl",
             ingredients: [{ name: "Arroz", category: "Cereales", amount: 1 }],
         },
         {
-            id: "cccccccc-cccc-cccc-cccc-cccccccccccc",
+            id: "cccccccc-cccc-4ccc-8ccc-cccccccccccc",
             name: "Pasta with Tomato",
             ingredients: [
                 { name: "Pasta", category: "Cereales", amount: 1 },
@@ -76,7 +77,7 @@ async function main() {
             ],
         },
         {
-            id: "dddddddd-dddd-dddd-dddd-dddddddddddd",
+            id: "dddddddd-dddd-4ddd-8ddd-dddddddddddd",
             name: "Simple Salad",
             ingredients: [
                 { name: "Tomate", category: "Verduras", amount: 2 },
@@ -86,7 +87,7 @@ async function main() {
             ],
         },
         {
-            id: "eeeeeeee-eeee-eeee-eeee-eeeeeeeeeeee",
+            id: "eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee",
             name: "Scrambled Eggs",
             ingredients: [
                 { name: "Huevos", category: "Huevos", amount: 2 },
@@ -95,7 +96,7 @@ async function main() {
             ],
         },
         {
-            id: "ffffffff-ffff-ffff-ffff-ffffffffffff",
+            id: "ffffffff-ffff-4fff-8fff-ffffffffffff",
             name: "Omelette with Onion",
             ingredients: [
                 { name: "Huevos", category: "Huevos", amount: 2 },
@@ -105,7 +106,7 @@ async function main() {
             ],
         },
         {
-            id: "11111111-1111-1111-1111-111111111111",
+            id: "11111111-1111-4111-8111-111111111111",
             name: "Chicken and Rice",
             ingredients: [
                 { name: "Pollo", category: "Carnes", amount: 1 },
@@ -115,7 +116,7 @@ async function main() {
             ],
         },
         {
-            id: "22222222-2222-2222-2222-222222222222",
+            id: "22222222-2222-4222-8222-222222222222",
             name: "Tuna Sandwich",
             ingredients: [
                 { name: "Pan", category: "Panadería", amount: 2 },
@@ -123,7 +124,7 @@ async function main() {
             ],
         },
         {
-            id: "33333333-3333-3333-3333-333333333333",
+            id: "33333333-3333-4333-8333-333333333333",
             name: "Yogurt with Banana",
             ingredients: [
                 { name: "Yogur", category: "Lácteos", amount: 1 },
@@ -131,7 +132,7 @@ async function main() {
             ],
         },
         {
-            id: "44444444-4444-4444-4444-444444444444",
+            id: "44444444-4444-4444-8444-444444444444",
             name: "Cheese Toast",
             ingredients: [
                 { name: "Pan", category: "Panadería", amount: 2 },

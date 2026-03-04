@@ -236,3 +236,19 @@ Before final submission:
 - Documentation must reflect real behavior, not intended behavior.
 
 If in doubt: write a failing test first.
+
+## 13) Household Model Rule (MVP)
+
+Current system behavior:
+
+- User registration MUST:
+  - Create a new household
+  - Assign user as OWNER
+  - Clone demo recipes into the new household
+
+Future changes to household behavior:
+- Must be documented in ADR
+- Must preserve authorization guarantees
+- Must not bypass membership checks
+
+Household remains the security boundary.

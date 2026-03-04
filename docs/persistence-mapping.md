@@ -19,10 +19,10 @@ Instead, persistence is implemented through repositories that **translate** betw
 ### Inventory (Aggregate Root)
 In the domain, `Inventory` is an **Aggregate Root** responsible for maintaining consistency rules:
 
-- there is only one item per `ingredientId`
+- there is only one item per `ingredientId` (MVP simplification)
 - quantities cannot be negative
 - consuming an ingredient removes the item when quantity reaches zero
-- expiring soon items can be queried by business rules
+- expiration dates are optional and influence planning heuristics
 
 `Inventory` is a behavior-centric object:
 - not just data storage
@@ -34,17 +34,20 @@ In the domain, `Inventory` is an **Aggregate Root** responsible for maintaining 
 - quantity (as a Value Object)
 - expiration date (optional)
 
-It contains behavior:
+It contains behavior such as:
 - `consume(...)`
 - `add(...)`
-- `isExpiringSoon(...)`
 
 ### Household (concept)
-At domain level, a household is the owner of the shared inventory and planning.
-Even if not fully implemented yet, the domain assumes:
+At domain level, a **household** is the owner of:
+- shared inventory
+- recipes
+- daily suggestions / cooking plan history
 
-- each inventory belongs to one household
-- multiple households exist in the system
+In the current implementation:
+- each user belongs to at least one household (membership)
+- the demo seed creates one household + one demo user
+- registering a new user creates a new household for that user (MVP choice to keep onboarding simple)
 
 ---
 
@@ -52,32 +55,40 @@ Even if not fully implemented yet, the domain assumes:
 
 In the database we store **data that can be indexed and queried efficiently**.
 
+### Tables (Prisma models) — relevant to the mapping
+
+**Identity / Authorization**
+- `User`
+- `Household`
+- `HouseholdMember` (join table with role)
+
+**Inventory**
+- `InventoryItem`
+  - uniquely constrained by `(householdId, ingredientId)`
+
+**Recipes**
+- `Recipe`
+- `RecipeIngredient`
+
+**Suggestions / Cooking Plan**
+- `MealSuggestion`
+  - unique by `(householdId, date, slot)`
+  - contains `status` and nullable `acceptedRecipeId`
+- `MealSuggestionRecipe`
+  - stores the suggested recipes (recipeId, recipeName, position)
+
 ### Why there is no `Inventory` table
 In the MVP, an inventory is always tied to exactly one household.  
 So in persistence:
-
 - `Inventory` is represented by the collection of `InventoryItem` rows belonging to a `Household`.
 
 This avoids an extra table that would provide no additional information in the MVP.
-
-### Tables (Prisma models)
-
-- `Household`
-  - root record to own inventory rows (and future members/preferences/suggestions)
-- `InventoryItem`
-  - rows containing ingredient stock data
-  - uniquely constrained by `(householdId, ingredientId)`
-
-This structure is normalized and supports:
-- queries by household
-- indexes and uniqueness
-- future growth (members, suggestions, recipes)
 
 ---
 
 ## 4. Mapping rules (Repository responsibilities)
 
-A repository in the infrastructure layer performs two translations:
+A repository in the infrastructure layer performs translations in both directions.
 
 ### 4.1 Load: DB → Domain
 When loading an inventory:
@@ -104,7 +115,24 @@ Later, this can be optimized using incremental updates (diff-based writes).
 
 ---
 
-## 5. Trade-offs and future evolution
+## 5. Suggestion persistence rules (important invariants)
+
+Daily suggestions are persisted as `MealSuggestion` per:
+- householdId
+- date (YYYY-MM-DD)
+- slot (DESAYUNO/COMIDA/CENA)
+
+Key rules:
+- Once a suggestion is **accepted**, `acceptedRecipeId` must be stored.
+- Future upserts (e.g., regenerating a suggestion) must **NOT wipe** `acceptedRecipeId` by accident.
+- The API returns accepted state using the same model:
+  - `kind="SUGGESTION"`
+  - `status="ACEPTADA"`
+  - `acceptedRecipeId="..."`
+
+---
+
+## 6. Trade-offs and future evolution
 
 ### Current simplification: one expiration date per ingredient
 The current domain model stores one optional expiration date per ingredient.
@@ -117,18 +145,19 @@ Future enhancement:
 - model batches/lots as separate entities/value objects
 - database would store multiple records per ingredient and household
 
-### Why not store inventory as JSON
-Storing the inventory as a single JSON blob is possible, but it reduces:
-- query capability (expiring items, counts)
-- indexing performance
-- incremental updates
+### Household onboarding simplification
+Current onboarding creates a new household per newly registered user and clones demo recipes.
 
-For a TFM and a scalable design, normalized tables are preferred.
+Future enhancements could include:
+- creating a household explicitly (name, members)
+- inviting other users (join flow)
+- separating “global recipe templates” from household recipes
 
 ---
 
-## 6. Summary
+## 7. Summary
 - Domain model and DB model serve different purposes.
 - `Inventory` is an Aggregate Root (behavior + invariants), not necessarily a table.
-- `Household` in DB acts as the owner/root for inventory persistence.
+- `Household` in DB acts as the owner/root for inventory, recipes and suggestions.
+- `acceptedRecipeId` is a persistence invariant and must not be lost on upsert.
 - Repositories translate between both worlds and keep the domain clean.

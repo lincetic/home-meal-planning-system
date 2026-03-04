@@ -202,3 +202,25 @@ Instead:
 - acceptedRecipeId must persist in MealSuggestion.
 - upsertDailySuggestion must NOT overwrite acceptedRecipeId.
 - `/plan/today` must always return acceptedRecipeId when status is ACEPTADA.
+
+## ADR-011 — Household per User (MVP Onboarding Model)
+
+**Status:** Accepted  
+**Date:** 2026-03-03
+
+### Decision
+Upon user registration:
+- A new Household is automatically created.
+- The user becomes OWNER.
+- Demo recipes are cloned into the new household.
+
+### Rationale
+- Simplifies onboarding.
+- Avoids complex invitation flow for MVP.
+- Ensures isolation and security boundary.
+- Keeps architecture extensible.
+
+### Consequences
+- Current model behaves as single-user household.
+- Multi-user households can be added later.
+- No structural refactor required for extension.

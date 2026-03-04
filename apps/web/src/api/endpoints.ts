@@ -5,7 +5,7 @@ export type MealSlot = "DESAYUNO" | "COMIDA" | "CENA";
 
 export type Ingredient = { id: string; name: string; category?: string | null };
 
-// Inventory DTOs (optional, but nice to type)
+// Inventory DTOs
 export type InventoryItemDto = {
     ingredientId: string;
     quantity: number;
@@ -16,7 +16,13 @@ export type InventoryDto = {
     items: InventoryItemDto[];
 };
 
-// Cooking plan DTOs (now includes acceptedRecipeId in SUGGESTION)
+// Cooking plan DTOs
+export type CookingPlanSuggestedRecipe = {
+    recipeId: string;
+    name: string;
+    position: number;
+};
+
 export type CookingPlanSuggestion = {
     kind: "SUGGESTION";
     suggestionId: string;
@@ -24,8 +30,22 @@ export type CookingPlanSuggestion = {
     householdId: string;
     date: string;
     slot: MealSlot;
+
     acceptedRecipeId?: string | null;
-    recipes: Array<{ recipeId: string; name: string; position: number }>;
+
+    recipes: CookingPlanSuggestedRecipe[];
+};
+
+export type CookingPlanAccepted = {
+    kind: "ACCEPTED";
+    suggestionId: string;
+    status: "ACEPTADA";
+    householdId: string;
+    date: string;
+    slot: MealSlot;
+
+    acceptedRecipe: { recipeId: string; name: string };
+    alternatives: CookingPlanSuggestedRecipe[];
 };
 
 export type CookingPlanNeedsShopping = {
@@ -37,34 +57,22 @@ export type CookingPlanNeedsShopping = {
     shoppingList: { items: Array<{ ingredientId: string; missingAmount: number }> };
 };
 
-export type CookingPlan = CookingPlanSuggestion | CookingPlanNeedsShopping;
+export type CookingPlan = CookingPlanSuggestion | CookingPlanNeedsShopping | CookingPlanAccepted;
 
+// ---- Ingredients
 export function searchIngredients(q: string, limit = 10) {
     const params = new URLSearchParams({ q, limit: String(limit) }).toString();
     return apiFetch<{ items: Ingredient[] }>(`/ingredients/search?${params}`);
 }
 
+export function getIngredientsByIds(ids: string[]) {
+    const params = new URLSearchParams({ ids: ids.join(",") }).toString();
+    return apiFetch<{ items: Ingredient[] }>(`/ingredients/by-ids?${params}`);
+}
+
+// ---- Inventory
 export function updateInventory(body: unknown) {
     return apiFetch(`/inventory/update`, { method: "POST", body: JSON.stringify(body) });
-}
-
-export function generateSuggestion(body: unknown) {
-    return apiFetch(`/suggestions/generate`, { method: "POST", body: JSON.stringify(body) });
-}
-
-export function modifySuggestion(body: unknown) {
-    return apiFetch(`/suggestions/modify`, { method: "POST", body: JSON.stringify(body) });
-}
-
-export function acceptSuggestion(body: { suggestionId: string; recipeId?: string }) {
-    return apiFetch<{ suggestionId: string; status: "ACEPTADA" }>(`/suggestions/accept`, {
-        method: "POST",
-        body: JSON.stringify(body),
-    });
-}
-
-export function shoppingListFromRecipes(body: unknown) {
-    return apiFetch(`/shopping-list/from-recipes`, { method: "POST", body: JSON.stringify(body) });
 }
 
 export function getInventory(householdId: string) {
@@ -72,9 +80,12 @@ export function getInventory(householdId: string) {
     return apiFetch<InventoryDto>(`/inventory?${params}`);
 }
 
-export function getIngredientsByIds(ids: string[]) {
-    const params = new URLSearchParams({ ids: ids.join(",") }).toString();
-    return apiFetch<{ items: Ingredient[] }>(`/ingredients/by-ids?${params}`);
+// ---- Suggestions / Plan
+export function acceptSuggestion(body: { suggestionId: string; recipeId?: string }) {
+    return apiFetch<{ suggestionId: string; status: "ACEPTADA" }>(`/suggestions/accept`, {
+        method: "POST",
+        body: JSON.stringify(body),
+    });
 }
 
 export function getPlanToday(body: {
@@ -86,22 +97,25 @@ export function getPlanToday(body: {
     return apiFetch<CookingPlan>(`/plan/today`, { method: "POST", body: JSON.stringify(body) });
 }
 
+// ---- Auth
 export type AuthUser = { id: string; email: string; name?: string | null };
 
 export function register(body: { email: string; password: string; name?: string }) {
-  return apiFetch<{ user: AuthUser; accessToken: string }>(`/auth/register`, {
-    method: "POST",
-    body: JSON.stringify(body),
-  });
+    return apiFetch<{ user: AuthUser; accessToken: string }>(`/auth/register`, {
+        method: "POST",
+        body: JSON.stringify(body),
+    });
 }
 
 export function login(body: { email: string; password: string }) {
-  return apiFetch<{ user: AuthUser; accessToken: string }>(`/auth/login`, {
-    method: "POST",
-    body: JSON.stringify(body),
-  });
+    return apiFetch<{ user: AuthUser; accessToken: string }>(`/auth/login`, {
+        method: "POST",
+        body: JSON.stringify(body),
+    });
 }
 
 export function me() {
-  return apiFetch<{ user: AuthUser; households: Array<{ id: string; role: "OWNER" | "MEMBER" }> }>(`/auth/me`);
+    return apiFetch<{ user: AuthUser; households: Array<{ id: string; role: "OWNER" | "MEMBER" }> }>(`/auth/me`, {
+        method: "GET",
+    });
 }

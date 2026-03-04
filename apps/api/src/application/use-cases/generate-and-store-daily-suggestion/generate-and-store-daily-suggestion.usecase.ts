@@ -1,6 +1,12 @@
 import { GenerateDailySuggestionUseCase } from "../generate-daily-suggestion/generate-daily-suggestion.usecase";
-import { GenerateDailySuggestionInput } from "../generate-daily-suggestion/generate-daily-suggestion.dto";
-import { SuggestionRepository } from "../../ports/suggestion-repository";
+import type { PersistedSuggestion, SuggestionRepository } from "../../ports/suggestion-repository";
+
+type MealSlot = "DESAYUNO" | "COMIDA" | "CENA";
+
+function clampMaxSuggestions(n?: number) {
+    if (!n) return 3;
+    return Math.max(1, Math.min(3, n));
+}
 
 export class GenerateAndStoreDailySuggestionUseCase {
     constructor(
@@ -8,31 +14,30 @@ export class GenerateAndStoreDailySuggestionUseCase {
         private readonly suggestionRepo: SuggestionRepository
     ) { }
 
-    async execute(input: GenerateDailySuggestionInput) {
-        // 0) If there is already an accepted suggestion for the same day+slot,
-        // we must NOT overwrite it (otherwise the user "loses" what was accepted).
-        const existing = await this.suggestionRepo.getDailySuggestion(
-            input.householdId,
-            input.date,
-            input.slot
-        );
+    async execute(input: {
+        householdId: string;
+        date: string; // YYYY-MM-DD
+        slot: MealSlot;
+        maxSuggestions?: number;
+    }): Promise<PersistedSuggestion> {
+        const maxSuggestions = clampMaxSuggestions(input.maxSuggestions);
 
-        if (existing && existing.status === "ACEPTADA") {
-            return existing;
-        }
+        const generated = await this.generator.execute({
+            householdId: input.householdId,
+            date: input.date,
+            slot: input.slot,
+            maxSuggestions,
+        });
 
-        // 1) Generate a fresh suggestion from current inventory/recipes
-        const generated = await this.generator.execute(input);
+        const picked = generated.recipes.slice(0, maxSuggestions);
 
-        // 2) Persist it (upsert for same household+date+slot)
-        // If there was an existing suggestion (PROPUESTA/MODIFICADA) we keep its acceptedRecipeId (normally null).
         const persisted = await this.suggestionRepo.upsertDailySuggestion({
             householdId: generated.householdId,
             date: generated.date,
             slot: generated.slot,
             status: "PROPUESTA",
-            acceptedRecipeId: existing?.acceptedRecipeId ?? null,
-            recipes: generated.recipes.map((r, idx) => ({
+            acceptedRecipeId: null, // explicit on create/update flow
+            recipes: picked.map((r, idx) => ({
                 recipeId: r.recipeId,
                 name: r.name,
                 position: idx,

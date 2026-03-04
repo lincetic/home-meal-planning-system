@@ -11,7 +11,7 @@ export const zRegisterRequest = z.object({
 });
 
 /**
- * Register response: user + access token.
+ * Register response.
  */
 export const zRegisterResponse = z.object({
     user: zAuthUser,

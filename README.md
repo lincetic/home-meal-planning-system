@@ -11,6 +11,7 @@ El sistema:
 - Si no es posible, genera la lista mínima de compra para desbloquear una receta.
 - Permite aceptar sugerencias y consumir inventario.
 - Prioriza el uso de ingredientes disponibles.
+- Protege los datos mediante autenticación y autorización por hogar.
 
 El sistema está diseñado bajo principios de **Clean Architecture**, con una API backend y una Web Demo funcional.
 
@@ -19,13 +20,14 @@ El sistema está diseñado bajo principios de **Clean Architecture**, con una AP
 ## b) Stack tecnológico utilizado
 
 ### Backend
-- **Lenguaje**: TypeScript
-- **Framework HTTP**: Fastify
-- **Arquitectura**: Clean Architecture (DDD-light)
-- **Base de datos**: PostgreSQL
-- **ORM**: Prisma
-- **Validación runtime**: Zod
-- **Testing**: Vitest
+- Lenguaje: TypeScript
+- Framework HTTP: Fastify
+- Arquitectura: Clean Architecture (DDD-light)
+- Base de datos: PostgreSQL
+- ORM: Prisma
+- Validación runtime: Zod
+- Testing: Vitest
+- Autenticación: JWT + Argon2
 
 ### Frontend (Web Demo)
 - React
@@ -110,16 +112,43 @@ apps/
 packages/
 └── contracts/  # Contratos compartidos (Zod + TS)
 ```
+### Modelo de Household (Decisión MVP)
 
+En el MVP actual:
+
+- Al registrarse un usuario:
+  - Se crea automáticamente un nuevo Household.
+  - El usuario queda como OWNER de dicho household.
+  - Se clonan las recetas demo iniciales en ese household.
+
+Esto permite:
+
+- Onboarding inmediato sin flujo de invitaciones.
+- Aislamiento total entre usuarios.
+- Escalabilidad futura hacia modelo multiusuario (invitar miembros).
+
+En versiones futuras:
+
+- Se podrá permitir múltiples usuarios dentro del mismo household.
+- Se podrá crear household explícitamente e invitar miembros.
 ---
 
 ## e) Funcionalidades principales actuales
+
+### Autenticación
+
+- Registro de usuario (POST /auth/register)
+- Login (POST /auth/login)
+- JWT access token
+- Endpoint protegido /auth/me
+- Protección por household (401 / 403)
 
 ### Inventario
 
 - Añadir ingredientes
 - Cantidades y fechas de caducidad
 - Persistencia en PostgreSQL
+- Protección por household
 
 ### Cooking Plan (flujo principal)
 
@@ -130,6 +159,8 @@ Devuelve:
 - SUGGESTION
   - Recetas posibles con inventario actual
   - suggestionId persistido
+  - status: PROPUESTA | ACEPTADA | MODIFICADA
+  - acceptedRecipeId si procede
 - NEEDS_SHOPPING
   - Receta objetivo
   - Lista mínima de compra
@@ -138,6 +169,8 @@ Devuelve:
 
 - Consume inventario
 - Actualiza estado
+- Persistencia de acceptedRecipeId
+- Comportamiento idempotente
 
 ### Shopping List
 
@@ -154,6 +187,9 @@ Devuelve:
 ✔ Validación estricta con contracts
 ✔ Web demo funcional y responsive (Tailwind)
 ✔ Flujo end-to-end operativo
+✔ Persistencia de sugerencias por household + date + slot
+✔ Estado ACEPTADA persistente
+✔ Protección completa por household
 ```
 
 ---

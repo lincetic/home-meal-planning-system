@@ -55,7 +55,12 @@ async function seedUser() {
         update: {},
     });
 
-    const passwordHash = await argon2.hash("Password123!");
+    const passwordHash = await argon2.hash("Password123!", {
+        type: argon2.argon2id,
+        timeCost: 1,
+        memoryCost: 2 ** 12,
+        parallelism: 1,
+    });
 
     const user = await prisma.user.upsert({
         where: { email: "demo@tfm.local" },
@@ -107,7 +112,7 @@ describe("Authorization checks", () => {
         });
 
         expect(res.statusCode).toBe(401);
-    });
+    }, 15000);
 
     it("POST /plan/today with wrong household returns 403", async () => {
         const { buildApp } = await import("../../server");

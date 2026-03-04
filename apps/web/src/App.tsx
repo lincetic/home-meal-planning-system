@@ -1,3 +1,4 @@
+import { getAccessToken, setAccessToken, clearAccessToken } from "./api/client";
 import { Card } from "./ui/Card";
 import { Button } from "./ui/Button";
 import { Input } from "./ui/Input";
@@ -15,6 +16,10 @@ import {
   getPlanToday,
   searchIngredients,
   updateInventory,
+  login,
+  register,
+  me,
+  type AuthUser,
   type Ingredient,
   type MealSlot,
   type CookingPlan,
@@ -23,7 +28,17 @@ import {
 } from "./api/endpoints";
 
 export default function App() {
-  const [householdId] = useState(DEFAULT_HOUSEHOLD_ID);
+  const [householdId, setHouseholdId] = useState(DEFAULT_HOUSEHOLD_ID);
+
+  // Auth
+  const [authUser, setAuthUser] = useState<AuthUser | null>(null);
+  const [authMode, setAuthMode] = useState<"login" | "register">("login");
+  const [authBusy, setAuthBusy] = useState(false);
+  const [authErr, setAuthErr] = useState("");
+
+  const [authEmail, setAuthEmail] = useState("demo@tfm.local");
+  const [authPassword, setAuthPassword] = useState("Password123!");
+  const [authName, setAuthName] = useState("Demo User");
 
   // Inventory view
   const [inventory, setInventory] = useState<InventoryDto | null>(null);
@@ -67,9 +82,22 @@ export default function App() {
     (async () => {
       try {
         setErr("");
+        setAuthErr("");
+
+        const token = getAccessToken();
+        if (!token) return;
+
+        const out = await me();
+        setAuthUser(out.user);
+
+        const firstHouseholdId = out.households?.[0]?.id;
+        if (firstHouseholdId) setHouseholdId(firstHouseholdId);
+
         await refreshInventory();
       } catch (e: any) {
-        setErr(e?.message ?? "Failed to load inventory");
+        clearAccessToken();
+        setAuthUser(null);
+        setAuthErr(e?.message ?? "Session expired. Please login again.");
       }
     })();
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -100,7 +128,18 @@ export default function App() {
   }, [q, canSearch]);
 
   useEffect(() => {
-    if (!plan || plan.kind !== "SUGGESTION") {
+    if (!plan) {
+      setSelectedRecipeId("");
+      return;
+    }
+
+    // ✅ Si viene ACCEPTED, bloqueamos selección al acceptedRecipe.recipeId
+    if (plan.kind === "ACCEPTED") {
+      setSelectedRecipeId(plan.acceptedRecipe.recipeId);
+      return;
+    }
+
+    if (plan.kind !== "SUGGESTION") {
       setSelectedRecipeId("");
       return;
     }
@@ -115,8 +154,7 @@ export default function App() {
 
     // Si el usuario ya tiene una selección válida en esta suggestion, NO la machaques
     const stillValid =
-      selectedRecipeId &&
-      sug.recipes.some((r) => r.recipeId === selectedRecipeId);
+      selectedRecipeId && sug.recipes.some((r) => r.recipeId === selectedRecipeId);
 
     if (stillValid) return;
 
@@ -125,9 +163,7 @@ export default function App() {
       sug.recipes.slice().sort((a, b) => a.position - b.position)[0]?.recipeId ?? "";
 
     setSelectedRecipeId(first);
-    // 👇 añade selectedRecipeId a deps
   }, [plan, selectedRecipeId]);
-
 
   async function addToInventory() {
     if (!selected) return;
@@ -154,8 +190,6 @@ export default function App() {
       setExpirationDate("");
 
       await refreshInventory();
-
-      // If you add inventory, plan might change, so we clear it.
       setPlan(null);
     } catch (e: any) {
       setErr(e?.message ?? "Failed to update inventory");
@@ -194,10 +228,14 @@ export default function App() {
   }
 
   async function acceptCurrentSuggestion() {
-    if (!plan || plan.kind !== "SUGGESTION") return;
+    if (!plan) return;
 
-    // If already accepted, do nothing (idempotent UX)
-    if (plan.status === "ACEPTADA") return;
+    // Si ya es ACCEPTED, no hacemos nada
+    if (plan.kind === "ACCEPTED") return;
+
+    if (plan.kind === "SUGGESTION" && plan.status === "ACEPTADA") return;
+
+    if (plan.kind !== "SUGGESTION") return;
 
     const chosenId = selectedRecipeId || plan.recipes[0]?.recipeId;
     if (!chosenId) {
@@ -213,10 +251,8 @@ export default function App() {
         recipeId: chosenId,
       });
 
-      // Refresh inventory because accept consumes
       await refreshInventory();
 
-      // Recompute plan: now it should come back as SUGGESTION with status ACEPTADA (and acceptedRecipeId)
       const out = await getPlanToday({
         householdId,
         date,
@@ -234,21 +270,132 @@ export default function App() {
 
   const invRows = inventory?.items ?? [];
 
-  const selectedRecipeName =
-    plan?.kind === "SUGGESTION"
-      ? plan.recipes.find((r) => r.recipeId === selectedRecipeId)?.name ?? "(none)"
-      : "(none)";
+  const isAccepted =
+    (plan?.kind === "SUGGESTION" && plan.status === "ACEPTADA") ||
+    plan?.kind === "ACCEPTED";
 
-  const isAccepted = plan?.kind === "SUGGESTION" && plan.status === "ACEPTADA";
+  const selectedRecipeName =
+    plan?.kind === "ACCEPTED"
+      ? plan.acceptedRecipe.name
+      : plan?.kind === "SUGGESTION"
+        ? plan.recipes.find((r) => r.recipeId === selectedRecipeId)?.name ?? "(none)"
+        : "(none)";
 
   const visibleRecipes =
     plan?.kind === "SUGGESTION"
       ? isAccepted && plan.acceptedRecipeId
-        ? plan.recipes.filter(
-          (r) => r.recipeId === plan.acceptedRecipeId
-        )
+        ? plan.recipes.filter((r) => r.recipeId === plan.acceptedRecipeId)
         : plan.recipes
-      : [];
+      : plan?.kind === "ACCEPTED"
+        ? [
+          { ...plan.acceptedRecipe, position: 0 },
+          ...plan.alternatives,
+        ]
+        : [];
+
+  async function submitAuth() {
+    setAuthBusy(true);
+    setAuthErr("");
+    try {
+      const res =
+        authMode === "login"
+          ? await login({ email: authEmail, password: authPassword })
+          : await register({ email: authEmail, password: authPassword, name: authName });
+
+      setAccessToken(res.accessToken);
+      setAuthUser(res.user);
+
+      const out = await me();
+      const firstHouseholdId = out.households?.[0]?.id;
+      if (firstHouseholdId) setHouseholdId(firstHouseholdId);
+
+      await refreshInventory();
+    } catch (e: any) {
+      setAuthErr(e?.message ?? "Authentication failed");
+    } finally {
+      setAuthBusy(false);
+    }
+  }
+
+  function logout() {
+    clearAccessToken();
+    setAuthUser(null);
+    setPlan(null);
+    setInventory(null);
+  }
+
+  if (!getAccessToken() || !authUser) {
+    return (
+      <div className="min-h-screen bg-slate-50">
+        <header className="border-b border-slate-200 bg-white">
+          <div className="mx-auto max-w-2xl px-4 py-5">
+            <h1 className="text-xl font-bold text-slate-900 sm:text-2xl">Home Meal Planning</h1>
+            <p className="mt-1 text-sm text-slate-600">
+              Login/Register to access your household inventory and daily cooking plan.
+            </p>
+          </div>
+        </header>
+
+        <main className="mx-auto max-w-2xl px-4 py-6">
+          {authErr ? (
+            <div className="mb-6">
+              <Alert title="Auth error">{authErr}</Alert>
+            </div>
+          ) : null}
+
+          <Card
+            title={authMode === "login" ? "Login" : "Register"}
+            subtitle="This is required to call the API (Authorization: Bearer token)."
+            right={
+              <div className="flex gap-2">
+                <Button
+                  variant={authMode === "login" ? "secondary" : "ghost"}
+                  onClick={() => setAuthMode("login")}
+                  type="button"
+                >
+                  Login
+                </Button>
+                <Button
+                  variant={authMode === "register" ? "secondary" : "ghost"}
+                  onClick={() => setAuthMode("register")}
+                  type="button"
+                >
+                  Register
+                </Button>
+              </div>
+            }
+          >
+            <div className="space-y-3">
+              {authMode === "register" ? (
+                <div>
+                  <label className="mb-1 block text-xs font-medium text-slate-600">Name</label>
+                  <Input value={authName} onChange={(e) => setAuthName(e.target.value)} />
+                </div>
+              ) : null}
+
+              <div>
+                <label className="mb-1 block text-xs font-medium text-slate-600">Email</label>
+                <Input value={authEmail} onChange={(e) => setAuthEmail(e.target.value)} />
+              </div>
+
+              <div>
+                <label className="mb-1 block text-xs font-medium text-slate-600">Password</label>
+                <Input
+                  type="password"
+                  value={authPassword}
+                  onChange={(e) => setAuthPassword(e.target.value)}
+                />
+              </div>
+
+              <Button onClick={submitAuth} disabled={authBusy} type="button">
+                {authBusy ? "Working..." : authMode === "login" ? "Login" : "Create account"}
+              </Button>
+            </div>
+          </Card>
+        </main>
+      </div>
+    );
+  }
 
   return (
     <div className="min-h-screen bg-slate-50">
@@ -267,6 +414,9 @@ export default function App() {
               <code className="rounded-lg border border-slate-200 bg-slate-50 px-2 py-1 text-xs text-slate-700">
                 {householdId}
               </code>
+              <Button variant="secondary" onClick={logout} type="button">
+                Logout
+              </Button>
             </div>
           </div>
         </div>
@@ -289,7 +439,6 @@ export default function App() {
               </Button>
             }
           >
-            {/* Add ingredient */}
             <div className="grid grid-cols-1 gap-4 md:grid-cols-12">
               <div className="md:col-span-6">
                 <label className="mb-1 block text-xs font-medium text-slate-600">Search ingredient</label>
@@ -328,9 +477,7 @@ export default function App() {
 
                 <div className="mt-2 text-xs text-slate-500">
                   Selected:{" "}
-                  <span className="font-semibold text-slate-900">
-                    {selected ? selected.name : "(none)"}
-                  </span>
+                  <span className="font-semibold text-slate-900">{selected ? selected.name : "(none)"}</span>
                 </div>
               </div>
 
@@ -361,7 +508,6 @@ export default function App() {
               </Button>
             </div>
 
-            {/* Inventory table */}
             <div className="mt-6">
               <div className="mb-2 flex items-center justify-between">
                 <div className="text-sm font-semibold text-slate-900">Current items</div>
@@ -379,9 +525,7 @@ export default function App() {
                       <Row3Cols
                         col1={
                           <div className="flex flex-col">
-                            <span className="font-medium">
-                              {ingredientNames[row.ingredientId] ?? row.ingredientId}
-                            </span>
+                            <span className="font-medium">{ingredientNames[row.ingredientId] ?? row.ingredientId}</span>
                             <span className="text-xs text-slate-500">{row.ingredientId}</span>
                           </div>
                         }
@@ -421,9 +565,9 @@ export default function App() {
                 {!plan ? (
                   <Pill>no plan</Pill>
                 ) : plan.kind === "SUGGESTION" ? (
-                  <Pill tone={plan.status === "ACEPTADA" ? "success" : "neutral"}>
-                    {plan.status}
-                  </Pill>
+                  <Pill tone={plan.status === "ACEPTADA" ? "success" : "neutral"}>{plan.status}</Pill>
+                ) : plan.kind === "ACCEPTED" ? (
+                  <Pill tone="success">ACEPTADA</Pill>
                 ) : (
                   <Pill tone="warn">NEEDS_SHOPPING</Pill>
                 )}
@@ -438,12 +582,14 @@ export default function App() {
                 <div className="rounded-2xl border border-dashed border-slate-300 bg-white px-4 py-6 text-sm text-slate-600">
                   Click <span className="font-semibold">Show me a plan</span> to get suggestions.
                 </div>
-              ) : plan.kind === "SUGGESTION" ? (
+              ) : plan.kind === "SUGGESTION" || plan.kind === "ACCEPTED" ? (
                 <div className="space-y-4">
                   <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
                     <div className="flex flex-wrap items-center gap-2">
                       <Pill tone="success">{isAccepted ? "✅ Plan accepted" : "✅ You can cook now"}</Pill>
-                      <span className="text-xs text-slate-500">(stored as {plan.status})</span>
+                      <span className="text-xs text-slate-500">
+                        (stored as {plan.kind === "ACCEPTED" ? "ACEPTADA" : plan.status})
+                      </span>
                     </div>
 
                     <div className="text-sm text-slate-700">
@@ -481,7 +627,6 @@ export default function App() {
                             key={r.recipeId}
                             type="button"
                             onClick={() => {
-                              // If accepted, keep selection locked to accepted recipe
                               if (isAccepted) return;
                               setSelectedRecipeId(r.recipeId);
                             }}
@@ -508,7 +653,9 @@ export default function App() {
 
                   <div className="text-xs text-slate-500">
                     suggestionId:{" "}
-                    <code className="rounded bg-slate-100 px-1 py-0.5">{plan.suggestionId}</code>
+                    <code className="rounded bg-slate-100 px-1 py-0.5">
+                      {plan.kind === "ACCEPTED" ? plan.suggestionId : plan.suggestionId}
+                    </code>
                   </div>
                 </div>
               ) : (
@@ -516,8 +663,7 @@ export default function App() {
                   <div className="flex items-center gap-2">
                     <Pill tone="warn">🛒 No recipes possible</Pill>
                     <div className="text-sm font-semibold text-slate-900">
-                      Recommended recipe:{" "}
-                      {plan.targetRecipe?.name ?? "(unknown recipe)"}
+                      Recommended recipe: {plan.targetRecipe?.name ?? "(unknown recipe)"}
                     </div>
                   </div>
 

@@ -10,7 +10,7 @@ export const zLoginRequest = z.object({
 });
 
 /**
- * Login response: user + access token.
+ * Login response.
  */
 export const zLoginResponse = z.object({
     user: zAuthUser,
