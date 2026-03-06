@@ -119,3 +119,19 @@ export function me() {
         method: "GET",
     });
 }
+
+export async function logout() {
+    const res = await fetch("/api/auth/logout", {
+        method: "POST",
+        credentials: "include",
+    });
+
+    const text = await res.text();
+    const data = text ? JSON.parse(text) : null;
+
+    if (!res.ok) {
+        throw new Error(data?.error ?? `HTTP ${res.status}`);
+    }
+
+    return data as { ok: boolean };
+}

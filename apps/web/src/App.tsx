@@ -1,3 +1,4 @@
+import { logout as apiLogout } from "./api/endpoints";
 import { getAccessToken, setAccessToken, clearAccessToken } from "./api/client";
 import { Card } from "./ui/Card";
 import { Button } from "./ui/Button";
@@ -28,7 +29,7 @@ import {
 } from "./api/endpoints";
 
 export default function App() {
-  const [householdId, setHouseholdId] = useState(DEFAULT_HOUSEHOLD_ID);
+  const [householdId, setHouseholdId] = useState<string>(DEFAULT_HOUSEHOLD_ID);
 
   // Auth
   const [authUser, setAuthUser] = useState<AuthUser | null>(null);
@@ -65,8 +66,40 @@ export default function App() {
 
   const canSearch = useMemo(() => q.trim().length >= 2, [q]);
 
-  async function refreshInventory() {
-    const inv = await getInventory(householdId);
+  function localLogout(message = "") {
+    clearAccessToken();
+    setAuthUser(null);
+    setPlan(null);
+    setInventory(null);
+    setErr("");
+    setAuthErr(message);
+  }
+
+  async function logout() {
+    try {
+      await apiLogout();
+    } catch {
+      // si falla tampoco pasa nada;
+      // al menos cerramos sesión en frontend
+    }
+
+    localLogout();
+  }
+
+  // ✅ Si el refresh falla, client.ts emite auth:expired -> aquí cerramos sesión y volvemos al login
+  useEffect(() => {
+    const handler = () => {
+      localLogout("Session expired. Please login again.");
+    };
+    window.addEventListener("auth:expired", handler);
+    return () => window.removeEventListener("auth:expired", handler);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  async function refreshInventory(hhId: string = householdId) {
+    if (!hhId) return;
+
+    const inv = await getInventory(hhId);
     setInventory(inv);
 
     const ids = Array.from(new Set(inv.items.map((i) => i.ingredientId)));
@@ -78,6 +111,7 @@ export default function App() {
     }
   }
 
+  // Boot: si hay token, intentamos /me
   useEffect(() => {
     (async () => {
       try {
@@ -91,13 +125,16 @@ export default function App() {
         setAuthUser(out.user);
 
         const firstHouseholdId = out.households?.[0]?.id;
-        if (firstHouseholdId) setHouseholdId(firstHouseholdId);
+        if (!firstHouseholdId) {
+          throw new Error("No household assigned to this user. Please contact admin or re-register.");
+        }
 
-        await refreshInventory();
+        setHouseholdId(firstHouseholdId);
+        await refreshInventory(firstHouseholdId);
       } catch (e: any) {
-        clearAccessToken();
-        setAuthUser(null);
-        setAuthErr(e?.message ?? "Session expired. Please login again.");
+        // si aquí cae por 401 y refresh falló -> auth:expired ya hará logout
+        // pero por si acaso:
+        localLogout(e?.message ?? "Session expired. Please login again.");
       }
     })();
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -127,41 +164,26 @@ export default function App() {
     };
   }, [q, canSearch]);
 
+  // Selected recipe logic (SUGGESTION only)
   useEffect(() => {
-    if (!plan) {
-      setSelectedRecipeId("");
-      return;
-    }
-
-    // ✅ Si viene ACCEPTED, bloqueamos selección al acceptedRecipe.recipeId
-    if (plan.kind === "ACCEPTED") {
-      setSelectedRecipeId(plan.acceptedRecipe.recipeId);
-      return;
-    }
-
-    if (plan.kind !== "SUGGESTION") {
+    if (!plan || plan.kind !== "SUGGESTION") {
       setSelectedRecipeId("");
       return;
     }
 
     const sug = plan as CookingPlanSuggestion;
 
-    // Si el plan está aceptado => fija selection al acceptedRecipeId
     if (sug.status === "ACEPTADA" && sug.acceptedRecipeId) {
       setSelectedRecipeId(sug.acceptedRecipeId);
       return;
     }
 
-    // Si el usuario ya tiene una selección válida en esta suggestion, NO la machaques
     const stillValid =
       selectedRecipeId && sug.recipes.some((r) => r.recipeId === selectedRecipeId);
-
     if (stillValid) return;
 
-    // Si no hay selección válida, elige la primera por position
     const first =
       sug.recipes.slice().sort((a, b) => a.position - b.position)[0]?.recipeId ?? "";
-
     setSelectedRecipeId(first);
   }, [plan, selectedRecipeId]);
 
@@ -228,14 +250,8 @@ export default function App() {
   }
 
   async function acceptCurrentSuggestion() {
-    if (!plan) return;
-
-    // Si ya es ACCEPTED, no hacemos nada
-    if (plan.kind === "ACCEPTED") return;
-
-    if (plan.kind === "SUGGESTION" && plan.status === "ACEPTADA") return;
-
-    if (plan.kind !== "SUGGESTION") return;
+    if (!plan || plan.kind !== "SUGGESTION") return;
+    if (plan.status === "ACEPTADA") return;
 
     const chosenId = selectedRecipeId || plan.recipes[0]?.recipeId;
     if (!chosenId) {
@@ -270,28 +286,19 @@ export default function App() {
 
   const invRows = inventory?.items ?? [];
 
-  const isAccepted =
-    (plan?.kind === "SUGGESTION" && plan.status === "ACEPTADA") ||
-    plan?.kind === "ACCEPTED";
+  const isAccepted = plan?.kind === "SUGGESTION" && plan.status === "ACEPTADA";
 
   const selectedRecipeName =
-    plan?.kind === "ACCEPTED"
-      ? plan.acceptedRecipe.name
-      : plan?.kind === "SUGGESTION"
-        ? plan.recipes.find((r) => r.recipeId === selectedRecipeId)?.name ?? "(none)"
-        : "(none)";
+    plan?.kind === "SUGGESTION"
+      ? plan.recipes.find((r) => r.recipeId === selectedRecipeId)?.name ?? "(none)"
+      : "(none)";
 
   const visibleRecipes =
     plan?.kind === "SUGGESTION"
       ? isAccepted && plan.acceptedRecipeId
         ? plan.recipes.filter((r) => r.recipeId === plan.acceptedRecipeId)
         : plan.recipes
-      : plan?.kind === "ACCEPTED"
-        ? [
-          { ...plan.acceptedRecipe, position: 0 },
-          ...plan.alternatives,
-        ]
-        : [];
+      : [];
 
   async function submitAuth() {
     setAuthBusy(true);
@@ -305,23 +312,20 @@ export default function App() {
       setAccessToken(res.accessToken);
       setAuthUser(res.user);
 
+      // 🔥 IMPORTANT: NO fallback al household demo, porque causa 403 en usuarios que no son miembros
       const out = await me();
       const firstHouseholdId = out.households?.[0]?.id;
-      if (firstHouseholdId) setHouseholdId(firstHouseholdId);
+      if (!firstHouseholdId) {
+        throw new Error("No household assigned to this user. Please contact admin or re-register.");
+      }
 
-      await refreshInventory();
+      setHouseholdId(firstHouseholdId);
+      await refreshInventory(firstHouseholdId);
     } catch (e: any) {
       setAuthErr(e?.message ?? "Authentication failed");
     } finally {
       setAuthBusy(false);
     }
-  }
-
-  function logout() {
-    clearAccessToken();
-    setAuthUser(null);
-    setPlan(null);
-    setInventory(null);
   }
 
   if (!getAccessToken() || !authUser) {
@@ -414,7 +418,7 @@ export default function App() {
               <code className="rounded-lg border border-slate-200 bg-slate-50 px-2 py-1 text-xs text-slate-700">
                 {householdId}
               </code>
-              <Button variant="secondary" onClick={logout} type="button">
+              <Button variant="secondary" onClick={() => logout()} type="button">
                 Logout
               </Button>
             </div>
@@ -434,7 +438,7 @@ export default function App() {
             title="1) Your household inventory"
             subtitle="Search ingredients in the catalog and add them to your household inventory."
             right={
-              <Button variant="secondary" onClick={refreshInventory} disabled={busy}>
+              <Button variant="secondary" onClick={() => refreshInventory()} disabled={busy}>
                 Refresh
               </Button>
             }
@@ -566,8 +570,6 @@ export default function App() {
                   <Pill>no plan</Pill>
                 ) : plan.kind === "SUGGESTION" ? (
                   <Pill tone={plan.status === "ACEPTADA" ? "success" : "neutral"}>{plan.status}</Pill>
-                ) : plan.kind === "ACCEPTED" ? (
-                  <Pill tone="success">ACEPTADA</Pill>
                 ) : (
                   <Pill tone="warn">NEEDS_SHOPPING</Pill>
                 )}
@@ -582,14 +584,12 @@ export default function App() {
                 <div className="rounded-2xl border border-dashed border-slate-300 bg-white px-4 py-6 text-sm text-slate-600">
                   Click <span className="font-semibold">Show me a plan</span> to get suggestions.
                 </div>
-              ) : plan.kind === "SUGGESTION" || plan.kind === "ACCEPTED" ? (
+              ) : plan.kind === "SUGGESTION" ? (
                 <div className="space-y-4">
                   <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
                     <div className="flex flex-wrap items-center gap-2">
                       <Pill tone="success">{isAccepted ? "✅ Plan accepted" : "✅ You can cook now"}</Pill>
-                      <span className="text-xs text-slate-500">
-                        (stored as {plan.kind === "ACCEPTED" ? "ACEPTADA" : plan.status})
-                      </span>
+                      <span className="text-xs text-slate-500">(stored as {plan.status})</span>
                     </div>
 
                     <div className="text-sm text-slate-700">
@@ -653,9 +653,7 @@ export default function App() {
 
                   <div className="text-xs text-slate-500">
                     suggestionId:{" "}
-                    <code className="rounded bg-slate-100 px-1 py-0.5">
-                      {plan.kind === "ACCEPTED" ? plan.suggestionId : plan.suggestionId}
-                    </code>
+                    <code className="rounded bg-slate-100 px-1 py-0.5">{plan.suggestionId}</code>
                   </div>
                 </div>
               ) : (

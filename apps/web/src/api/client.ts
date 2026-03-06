@@ -12,31 +12,77 @@ export function getAccessToken(): string | null {
     return localStorage.getItem(TOKEN_KEY);
 }
 
-export async function apiFetch<T>(path: string, init?: RequestInit): Promise<T> {
-    const token = getAccessToken();
+async function refreshAccessToken(): Promise<string | null> {
+    // OJO: el endpoint real debe existir en el backend
+    const res = await fetch("/api/auth/refresh", {
+        method: "POST",
+        credentials: "include",
+    });
 
+    if (!res.ok) return null;
+
+    const data = await res.json();
+    const token = data?.accessToken;
+    if (typeof token !== "string" || token.length === 0) return null;
+
+    setAccessToken(token);
+    return token;
+}
+
+function parseJsonSafe(text: string) {
+    try {
+        return text ? JSON.parse(text) : null;
+    } catch {
+        return null;
+    }
+}
+
+export async function apiFetch<T>(path: string, init?: RequestInit): Promise<T> {
     const headers: Record<string, string> = {
         "Content-Type": "application/json",
         ...(init?.headers as any),
     };
 
-    if (token) {
-        headers["Authorization"] = `Bearer ${token}`;
-    }
+    const token = getAccessToken();
+    if (token) headers["Authorization"] = `Bearer ${token}`;
 
-    const res = await fetch(`/api${path}`, {
-        ...init,
-        headers,
-    });
+    const doFetch = async () => {
+        return fetch(`/api${path}`, {
+            ...init,
+            headers,
+            credentials: "include",
+        });
+    };
 
+    const res = await doFetch();
     const text = await res.text();
-    const data = text ? JSON.parse(text) : null;
+    const data = parseJsonSafe(text);
 
-    if (!res.ok) {
-        // Si el token ya no vale, limpiamos sesión
-        if (res.status === 401) clearAccessToken();
-        throw new Error(data?.error ?? `HTTP ${res.status}`);
+    if (res.ok) return data as T;
+
+    // 🔐 Si es 401, intentamos refresh UNA vez (si no estamos ya en refresh)
+    const isRefreshCall = path.startsWith("/auth/refresh");
+    if (res.status === 401 && !isRefreshCall) {
+        const newToken = await refreshAccessToken();
+
+        if (newToken) {
+            headers["Authorization"] = `Bearer ${newToken}`;
+
+            const retry = await doFetch();
+            const textRetry = await retry.text();
+            const dataRetry = parseJsonSafe(textRetry);
+
+            if (retry.ok) return dataRetry as T;
+
+            // si incluso el retry falla, cae al error normal
+            throw new Error(dataRetry?.error ?? `HTTP ${retry.status}`);
+        }
+
+        // refresh falló => cerramos sesión en el front
+        clearAccessToken();
+        window.dispatchEvent(new Event("auth:expired"));
+        throw new Error(data?.error ?? "Unauthorized");
     }
 
-    return data as T;
+    throw new Error(data?.error ?? `HTTP ${res.status}`);
 }

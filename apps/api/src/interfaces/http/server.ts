@@ -13,6 +13,7 @@ import { requireAuth } from "./auth/auth";
 import { assertHouseholdAccess } from "./auth/household-access";
 
 import Fastify from "fastify";
+import cookie from "@fastify/cookie";
 import {
     zUpdateInventoryRequest,
     zUpdateInventoryResponse,
@@ -93,7 +94,13 @@ import { GetInventoryUseCase } from "../../application/use-cases/get-inventory/g
 import { prisma } from "../../infrastructure/persistence/prisma/prisma-client";
 import { zGetIngredientsByIdsQuery, zGetIngredientsByIdsResponse } from "@tfm/contracts";
 
+const ACCESS_TOKEN_EXPIRES = "15m";
+const REFRESH_TOKEN_EXPIRES = "7d";
 const app = Fastify({ logger: true });
+
+app.register(cookie, {
+    secret: process.env.COOKIE_SECRET || "dev-secret",
+});
 
 // Manual DI (por ahora)
 // const inventoryRepo = new InMemoryInventoryRepository(); //Dejamos de momento el inmemory
@@ -208,8 +215,23 @@ app.post("/auth/register", async (request, reply) => {
     // pero si quieres 100% atomicidad, se mete dentro del $transaction usando tx en helpers.
     await cloneDemoRecipesToHousehold(created.household.id);
 
-    const accessToken = jwt.sign({ sub: created.user.id }, process.env.JWT_SECRET!, {
-        expiresIn: process.env.JWT_EXPIRES_IN ?? "7d",
+    const accessToken = jwt.sign(
+        { sub: created.user.id },
+        process.env.JWT_SECRET!,
+        { expiresIn: ACCESS_TOKEN_EXPIRES }
+    );
+
+    const refreshToken = jwt.sign(
+        { sub: created.user.id, type: "refresh" },
+        process.env.JWT_SECRET!,
+        { expiresIn: REFRESH_TOKEN_EXPIRES }
+    );
+
+    reply.setCookie("refreshToken", refreshToken, {
+        httpOnly: true,
+        sameSite: "lax",
+        path: "/",
+        secure: process.env.NODE_ENV === "production",
     });
 
     const res = { user: created.user, accessToken };
@@ -237,8 +259,46 @@ app.post("/auth/login", async (request, reply) => {
     const okPass = await argon2.verify(user.passwordHash, password);
     if (!okPass) return reply.status(401).send({ error: "Invalid credentials" });
 
-    const accessToken = jwt.sign({ sub: user.id }, process.env.JWT_SECRET!, {
-        expiresIn: process.env.JWT_EXPIRES_IN ?? "7d",
+    // ✅ Ensure the user has at least 1 household (fix for old users)
+    const memberships = await prisma.householdMember.findMany({
+        where: { userId: user.id },
+        select: { householdId: true, role: true },
+    });
+
+    if (memberships.length === 0) {
+        const created = await prisma.$transaction(async (tx) => {
+            const household = await tx.household.create({
+                data: { id: crypto.randomUUID() },
+                select: { id: true },
+            });
+
+            await tx.householdMember.create({
+                data: { userId: user.id, householdId: household.id, role: "OWNER" },
+            });
+
+            return household;
+        });
+
+        await cloneDemoRecipesToHousehold(created.id);
+    }
+
+    const accessToken = jwt.sign(
+        { sub: user.id },
+        process.env.JWT_SECRET!,
+        { expiresIn: ACCESS_TOKEN_EXPIRES }
+    );
+
+    const refreshToken = jwt.sign(
+        { sub: user.id, type: "refresh" },
+        process.env.JWT_SECRET!,
+        { expiresIn: REFRESH_TOKEN_EXPIRES }
+    );
+
+    reply.setCookie("refreshToken", refreshToken, {
+        httpOnly: true,
+        sameSite: "lax",
+        path: "/",
+        secure: process.env.NODE_ENV === "production",
     });
 
     const res = { user: { id: user.id, email: user.email, name: user.name }, accessToken };
@@ -279,6 +339,44 @@ app.get("/auth/me", async (request, reply) => {
         }
         return reply.status(500).send({ error: "Unexpected error" });
     }
+});
+
+app.post("/auth/refresh", async (request, reply) => {
+    try {
+        const refreshToken = request.cookies.refreshToken;
+        if (!refreshToken) {
+            return reply.status(401).send({ error: "Unauthorized" });
+        }
+
+        const payload = jwt.verify(
+            refreshToken,
+            process.env.JWT_SECRET!
+        ) as { sub: string; type?: string };
+
+        if (payload.type !== "refresh") {
+            return reply.status(401).send({ error: "Invalid refresh token" });
+        }
+
+        const accessToken = jwt.sign(
+            { sub: payload.sub },
+            process.env.JWT_SECRET!,
+            { expiresIn: ACCESS_TOKEN_EXPIRES }
+        );
+
+        return reply.send({ accessToken });
+
+    } catch {
+        return reply.status(401).send({ error: "Unauthorized" });
+    }
+});
+
+app.post("/auth/logout", async (_request, reply) => {
+
+    reply.clearCookie("refreshToken", {
+        path: "/",
+    });
+
+    return reply.send({ ok: true });
 });
 
 app.post("/inventory/update", async (request, reply) => {
