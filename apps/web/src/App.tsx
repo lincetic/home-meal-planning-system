@@ -28,6 +28,8 @@ import {
   type InventoryDto,
 } from "./api/endpoints";
 
+type MobileTab = "plan" | "inventory";
+
 export default function App() {
   const [householdId, setHouseholdId] = useState<string>(DEFAULT_HOUSEHOLD_ID);
 
@@ -40,6 +42,9 @@ export default function App() {
   const [authEmail, setAuthEmail] = useState("demo@tfm.local");
   const [authPassword, setAuthPassword] = useState("Password123!");
   const [authName, setAuthName] = useState("Demo User");
+
+  // Mobile tabs
+  const [tab, setTab] = useState<MobileTab>("plan");
 
   // Inventory view
   const [inventory, setInventory] = useState<InventoryDto | null>(null);
@@ -73,27 +78,24 @@ export default function App() {
     setInventory(null);
     setErr("");
     setAuthErr(message);
+    setTab("plan");
   }
 
   async function logout() {
     try {
       await apiLogout();
     } catch {
-      // si falla tampoco pasa nada;
-      // al menos cerramos sesión en frontend
+      // aunque falle backend, cerramos sesión en frontend
     }
-
     localLogout();
   }
 
-  // ✅ Si el refresh falla, client.ts emite auth:expired -> aquí cerramos sesión y volvemos al login
   useEffect(() => {
     const handler = () => {
       localLogout("Session expired. Please login again.");
     };
     window.addEventListener("auth:expired", handler);
     return () => window.removeEventListener("auth:expired", handler);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   async function refreshInventory(hhId: string = householdId) {
@@ -111,7 +113,6 @@ export default function App() {
     }
   }
 
-  // Boot: si hay token, intentamos /me
   useEffect(() => {
     (async () => {
       try {
@@ -132,15 +133,11 @@ export default function App() {
         setHouseholdId(firstHouseholdId);
         await refreshInventory(firstHouseholdId);
       } catch (e: any) {
-        // si aquí cae por 401 y refresh falló -> auth:expired ya hará logout
-        // pero por si acaso:
         localLogout(e?.message ?? "Session expired. Please login again.");
       }
     })();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  // Autocomplete
   useEffect(() => {
     let cancelled = false;
 
@@ -164,7 +161,6 @@ export default function App() {
     };
   }, [q, canSearch]);
 
-  // Selected recipe logic (SUGGESTION only)
   useEffect(() => {
     if (!plan || plan.kind !== "SUGGESTION") {
       setSelectedRecipeId("");
@@ -213,6 +209,7 @@ export default function App() {
 
       await refreshInventory();
       setPlan(null);
+      setTab("inventory");
     } catch (e: any) {
       setErr(e?.message ?? "Failed to update inventory");
     } finally {
@@ -232,6 +229,7 @@ export default function App() {
       });
 
       setPlan(out);
+      setTab("plan");
 
       if (out.kind === "NEEDS_SHOPPING") {
         const ids = Array.from(new Set(out.shoppingList.items.map((i) => i.ingredientId)));
@@ -277,6 +275,7 @@ export default function App() {
       });
 
       setPlan(out);
+      setTab("plan");
     } catch (e: any) {
       setErr(e?.message ?? "Failed to accept suggestion");
     } finally {
@@ -312,7 +311,6 @@ export default function App() {
       setAccessToken(res.accessToken);
       setAuthUser(res.user);
 
-      // 🔥 IMPORTANT: NO fallback al household demo, porque causa 403 en usuarios que no son miembros
       const out = await me();
       const firstHouseholdId = out.households?.[0]?.id;
       if (!firstHouseholdId) {
@@ -321,6 +319,7 @@ export default function App() {
 
       setHouseholdId(firstHouseholdId);
       await refreshInventory(firstHouseholdId);
+      setTab("plan");
     } catch (e: any) {
       setAuthErr(e?.message ?? "Authentication failed");
     } finally {
@@ -328,19 +327,284 @@ export default function App() {
     }
   }
 
+  function renderInventorySection() {
+    return (
+      <div className="space-y-4">
+        <Card
+          title="Inventory"
+          subtitle="Search ingredients and add them to your household inventory."
+          right={
+            <Button variant="secondary" onClick={() => refreshInventory()} disabled={busy}>
+              Refresh
+            </Button>
+          }
+        >
+          <div className="grid grid-cols-1 gap-4">
+            <div>
+              <label className="mb-1 block text-xs font-medium text-slate-600">Search ingredient</label>
+              <div className="relative">
+                <Input
+                  value={q}
+                  onChange={(e) => setQ(e.target.value)}
+                  placeholder="e.g. leche, arroz, huevos..."
+                />
+
+                {results.length > 0 ? (
+                  <div className="absolute z-20 mt-2 max-h-56 w-full overflow-auto rounded-2xl border border-slate-200 bg-white shadow-lg">
+                    {results.map((i) => (
+                      <button
+                        key={i.id}
+                        type="button"
+                        onClick={() => {
+                          setSelected(i);
+                          setQ(i.name);
+                          setResults([]);
+                        }}
+                        className="flex w-full items-start justify-between gap-3 px-4 py-3 text-left hover:bg-slate-50"
+                      >
+                        <div className="min-w-0">
+                          <div className="truncate text-sm font-semibold text-slate-900">{i.name}</div>
+                          <div className="truncate text-xs text-slate-500">{i.category ?? ""}</div>
+                        </div>
+                        <span className="mt-0.5 shrink-0 rounded-full border border-slate-200 bg-slate-50 px-2 py-0.5 text-xs text-slate-600">
+                          Select
+                        </span>
+                      </button>
+                    ))}
+                  </div>
+                ) : null}
+              </div>
+
+              <div className="mt-2 text-xs text-slate-500">
+                Selected:{" "}
+                <span className="font-semibold text-slate-900">
+                  {selected ? selected.name : "(none)"}
+                </span>
+              </div>
+            </div>
+
+            <div className="grid grid-cols-2 gap-3">
+              <div>
+                <label className="mb-1 block text-xs font-medium text-slate-600">Amount</label>
+                <Input
+                  type="number"
+                  min={1}
+                  value={amount}
+                  onChange={(e) => setAmount(Number(e.target.value))}
+                />
+              </div>
+
+              <div>
+                <label className="mb-1 block text-xs font-medium text-slate-600">Expiration</label>
+                <Input
+                  type="date"
+                  value={expirationDate}
+                  onChange={(e) => setExpirationDate(e.target.value)}
+                />
+              </div>
+            </div>
+
+            <Button onClick={addToInventory} disabled={!selected || busy}>
+              {busy ? "Saving..." : "Add to inventory"}
+            </Button>
+          </div>
+        </Card>
+
+        <Card
+          title="Current items"
+          subtitle={`${invRows.length} item(s) in your household`}
+        >
+          {invRows.length === 0 ? (
+            <div className="rounded-2xl border border-dashed border-slate-300 bg-white px-4 py-6 text-sm text-slate-600">
+              Inventory is empty. Add a few ingredients to start.
+            </div>
+          ) : (
+            <TableShell headers={["Ingredient", "Quantity", "Expiration"]}>
+              {invRows.map((row, idx) => (
+                <div key={row.ingredientId} className={idx % 2 === 1 ? "bg-slate-50/40" : ""}>
+                  <Row3Cols
+                    col1={
+                      <div className="flex flex-col">
+                        <span className="font-medium">
+                          {ingredientNames[row.ingredientId] ?? row.ingredientId}
+                        </span>
+                        <span className="text-xs text-slate-500">{row.ingredientId}</span>
+                      </div>
+                    }
+                    col2={<span className="font-semibold">{row.quantity}</span>}
+                    col3={<span>{row.expirationDate ?? "-"}</span>}
+                  />
+                </div>
+              ))}
+            </TableShell>
+          )}
+        </Card>
+      </div>
+    );
+  }
+
+  function renderPlanSection() {
+    return (
+      <div className="space-y-4">
+        <Card
+          title="Today’s plan"
+          subtitle="Get recipe suggestions based on what you already have."
+        >
+          <div className="grid grid-cols-1 gap-3">
+            <div>
+              <label className="mb-1 block text-xs font-medium text-slate-600">Date</label>
+              <Input type="date" value={date} onChange={(e) => setDate(e.target.value)} />
+            </div>
+
+            <div>
+              <label className="mb-1 block text-xs font-medium text-slate-600">Meal</label>
+              <Select value={slot} onChange={(e) => setSlot(e.target.value as MealSlot)}>
+                <option value="DESAYUNO">Breakfast</option>
+                <option value="COMIDA">Lunch</option>
+                <option value="CENA">Dinner</option>
+              </Select>
+            </div>
+
+            <Button onClick={computePlan} disabled={busy}>
+              {busy ? "Working..." : "Show me a plan"}
+            </Button>
+          </div>
+        </Card>
+
+        <Card
+          title="Plan result"
+          subtitle={
+            !plan
+              ? "No plan loaded yet."
+              : plan.kind === "SUGGESTION"
+                ? `Status: ${plan.status}`
+                : "Status: NEEDS_SHOPPING"
+          }
+        >
+          {!plan ? (
+            <div className="rounded-2xl border border-dashed border-slate-300 bg-white px-4 py-6 text-sm text-slate-600">
+              Tap <span className="font-semibold">Show me a plan</span> to get suggestions.
+            </div>
+          ) : plan.kind === "SUGGESTION" ? (
+            <div className="space-y-4">
+              <div className="rounded-2xl border border-slate-200 bg-white p-4">
+                <div className="mb-2 flex items-center gap-2">
+                  <Pill tone={isAccepted ? "success" : "neutral"}>
+                    {isAccepted ? "ACEPTADA" : "SUGGESTION"}
+                  </Pill>
+                </div>
+
+                <div className="text-sm text-slate-500">Selected recipe</div>
+                <div className="mt-1 text-lg font-semibold text-slate-900">
+                  {selectedRecipeName}
+                </div>
+
+                <div className="mt-4">
+                  <Button
+                    variant="success"
+                    onClick={acceptCurrentSuggestion}
+                    disabled={busy || isAccepted}
+                    type="button"
+                  >
+                    {isAccepted ? "Already accepted" : busy ? "Accepting..." : "Accept selected recipe"}
+                  </Button>
+                </div>
+              </div>
+
+              <div className="overflow-hidden rounded-2xl border border-slate-200 bg-white">
+                <div className="bg-slate-50 px-4 py-3 text-xs font-semibold text-slate-600">
+                  Recipe options
+                </div>
+                <div className="divide-y divide-slate-100">
+                  {visibleRecipes
+                    .slice()
+                    .sort((a, b) => a.position - b.position)
+                    .map((r) => (
+                      <button
+                        key={r.recipeId}
+                        type="button"
+                        onClick={() => {
+                          if (isAccepted) return;
+                          setSelectedRecipeId(r.recipeId);
+                        }}
+                        className={[
+                          "w-full text-left px-4 py-3 flex items-start justify-between gap-4",
+                          selectedRecipeId === r.recipeId ? "bg-emerald-50" : "hover:bg-slate-50",
+                          isAccepted ? "cursor-default" : "",
+                        ].join(" ")}
+                      >
+                        <div className="min-w-0">
+                          <div className="truncate text-sm font-semibold text-slate-900">{r.name}</div>
+                          <div className="truncate text-xs text-slate-500">recipeId: {r.recipeId}</div>
+                        </div>
+
+                        {selectedRecipeId === r.recipeId ? (
+                          <Pill tone="success">{isAccepted ? "Accepted" : "Selected"}</Pill>
+                        ) : (
+                          <Pill>#{r.position + 1}</Pill>
+                        )}
+                      </button>
+                    ))}
+                </div>
+              </div>
+
+              <div className="text-xs text-slate-500">
+                suggestionId:{" "}
+                <code className="rounded bg-slate-100 px-1 py-0.5">{plan.suggestionId}</code>
+              </div>
+            </div>
+          ) : (
+            <div className="space-y-4">
+              <div className="rounded-2xl border border-amber-200 bg-amber-50 p-4">
+                <div className="flex items-center gap-2">
+                  <Pill tone="warn">NEEDS_SHOPPING</Pill>
+                </div>
+                <div className="mt-2 text-sm text-slate-500">Recommended recipe</div>
+                <div className="mt-1 text-lg font-semibold text-slate-900">
+                  {plan.targetRecipe?.name ?? "(unknown recipe)"}
+                </div>
+              </div>
+
+              <div className="overflow-hidden rounded-2xl border border-slate-200 bg-white">
+                <div className="bg-slate-50 px-4 py-3 text-xs font-semibold text-slate-600">
+                  Minimal shopping list
+                </div>
+                <div className="divide-y divide-slate-100">
+                  {plan.shoppingList.items.map((it, idx) => (
+                    <div key={it.ingredientId} className={idx % 2 === 1 ? "bg-slate-50/40" : ""}>
+                      <div className="flex items-center justify-between gap-4 px-4 py-3">
+                        <div className="min-w-0">
+                          <div className="truncate text-sm font-medium text-slate-900">
+                            {ingredientNames[it.ingredientId] ?? it.ingredientId}
+                          </div>
+                          <div className="truncate text-xs text-slate-500">{it.ingredientId}</div>
+                        </div>
+                        <Pill tone="warn">x {it.missingAmount}</Pill>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            </div>
+          )}
+        </Card>
+      </div>
+    );
+  }
+
   if (!getAccessToken() || !authUser) {
     return (
       <div className="min-h-screen bg-slate-50">
         <header className="border-b border-slate-200 bg-white">
-          <div className="mx-auto max-w-2xl px-4 py-5">
-            <h1 className="text-xl font-bold text-slate-900 sm:text-2xl">Home Meal Planning</h1>
+          <div className="mx-auto max-w-md px-4 py-5">
+            <h1 className="text-xl font-bold text-slate-900">Home Meal Planning</h1>
             <p className="mt-1 text-sm text-slate-600">
               Login/Register to access your household inventory and daily cooking plan.
             </p>
           </div>
         </header>
 
-        <main className="mx-auto max-w-2xl px-4 py-6">
+        <main className="mx-auto max-w-md px-4 py-6">
           {authErr ? (
             <div className="mb-6">
               <Alert title="Auth error">{authErr}</Alert>
@@ -349,7 +613,7 @@ export default function App() {
 
           <Card
             title={authMode === "login" ? "Login" : "Register"}
-            subtitle="This is required to call the API (Authorization: Bearer token)."
+            subtitle="Authenticate to call the protected API."
             right={
               <div className="flex gap-2">
                 <Button
@@ -404,302 +668,60 @@ export default function App() {
   return (
     <div className="min-h-screen bg-slate-50">
       <header className="border-b border-slate-200 bg-white">
-        <div className="mx-auto max-w-6xl px-4 py-5">
-          <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+        <div className="mx-auto max-w-md px-4 py-4">
+          <div className="flex items-start justify-between gap-3">
             <div>
-              <h1 className="text-xl font-bold text-slate-900 sm:text-2xl">Home Meal Planning</h1>
-              <p className="mt-1 text-sm text-slate-600">
-                Uses your household inventory to suggest what you can cook today (or the minimal shopping list to unlock a recipe).
-              </p>
+              <h1 className="text-lg font-bold text-slate-900">Home Meal Planning</h1>
+              <p className="mt-1 text-xs text-slate-500">{authUser.email}</p>
             </div>
-            <div className="flex flex-wrap items-center gap-2">
-              <Pill>{slot}</Pill>
-              <Pill tone="neutral">{date}</Pill>
-              <code className="rounded-lg border border-slate-200 bg-slate-50 px-2 py-1 text-xs text-slate-700">
-                {householdId}
-              </code>
-              <Button variant="secondary" onClick={() => logout()} type="button">
-                Logout
-              </Button>
-            </div>
+
+            <Button variant="secondary" onClick={() => logout()} type="button">
+              Logout
+            </Button>
+          </div>
+
+          <div className="mt-3 flex flex-wrap items-center gap-2">
+            <Pill>{slot}</Pill>
+            <Pill tone="neutral">{date}</Pill>
           </div>
         </div>
       </header>
 
-      <main className="mx-auto max-w-6xl px-4 py-6">
+      <main className="mx-auto max-w-md px-4 py-4 pb-24">
         {err ? (
-          <div className="mb-6">
+          <div className="mb-4">
             <Alert title="Error">{err}</Alert>
           </div>
         ) : null}
 
-        <div className="grid grid-cols-1 gap-6 lg:grid-cols-2">
-          <Card
-            title="1) Your household inventory"
-            subtitle="Search ingredients in the catalog and add them to your household inventory."
-            right={
-              <Button variant="secondary" onClick={() => refreshInventory()} disabled={busy}>
-                Refresh
-              </Button>
-            }
-          >
-            <div className="grid grid-cols-1 gap-4 md:grid-cols-12">
-              <div className="md:col-span-6">
-                <label className="mb-1 block text-xs font-medium text-slate-600">Search ingredient</label>
-                <div className="relative">
-                  <Input
-                    value={q}
-                    onChange={(e) => setQ(e.target.value)}
-                    placeholder="e.g. leche, arroz, huevos..."
-                  />
-
-                  {results.length > 0 ? (
-                    <div className="absolute z-20 mt-2 max-h-56 w-full overflow-auto rounded-2xl border border-slate-200 bg-white shadow-lg">
-                      {results.map((i) => (
-                        <button
-                          key={i.id}
-                          type="button"
-                          onClick={() => {
-                            setSelected(i);
-                            setQ(i.name);
-                            setResults([]);
-                          }}
-                          className="flex w-full items-start justify-between gap-3 px-4 py-3 text-left hover:bg-slate-50"
-                        >
-                          <div className="min-w-0">
-                            <div className="truncate text-sm font-semibold text-slate-900">{i.name}</div>
-                            <div className="truncate text-xs text-slate-500">{i.category ?? ""}</div>
-                          </div>
-                          <span className="mt-0.5 shrink-0 rounded-full border border-slate-200 bg-slate-50 px-2 py-0.5 text-xs text-slate-600">
-                            Select
-                          </span>
-                        </button>
-                      ))}
-                    </div>
-                  ) : null}
-                </div>
-
-                <div className="mt-2 text-xs text-slate-500">
-                  Selected:{" "}
-                  <span className="font-semibold text-slate-900">{selected ? selected.name : "(none)"}</span>
-                </div>
-              </div>
-
-              <div className="md:col-span-3">
-                <label className="mb-1 block text-xs font-medium text-slate-600">Amount</label>
-                <Input
-                  type="number"
-                  min={1}
-                  value={amount}
-                  onChange={(e) => setAmount(Number(e.target.value))}
-                />
-              </div>
-
-              <div className="md:col-span-3">
-                <label className="mb-1 block text-xs font-medium text-slate-600">Expiration (optional)</label>
-                <Input
-                  type="date"
-                  value={expirationDate}
-                  onChange={(e) => setExpirationDate(e.target.value)}
-                />
-              </div>
-            </div>
-
-            <div className="mt-4 flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
-              <div className="text-xs text-slate-500">Add what you have at home; the plan will change accordingly.</div>
-              <Button onClick={addToInventory} disabled={!selected || busy}>
-                {busy ? "Saving..." : "Add to inventory"}
-              </Button>
-            </div>
-
-            <div className="mt-6">
-              <div className="mb-2 flex items-center justify-between">
-                <div className="text-sm font-semibold text-slate-900">Current items</div>
-                <Pill tone={invRows.length === 0 ? "warn" : "success"}>{invRows.length} items</Pill>
-              </div>
-
-              {invRows.length === 0 ? (
-                <div className="rounded-2xl border border-dashed border-slate-300 bg-white px-4 py-6 text-sm text-slate-600">
-                  Inventory is empty. Add a few ingredients to start.
-                </div>
-              ) : (
-                <TableShell headers={["Ingredient", "Quantity", "Expiration"]}>
-                  {invRows.map((row, idx) => (
-                    <div key={row.ingredientId} className={idx % 2 === 1 ? "bg-slate-50/40" : ""}>
-                      <Row3Cols
-                        col1={
-                          <div className="flex flex-col">
-                            <span className="font-medium">{ingredientNames[row.ingredientId] ?? row.ingredientId}</span>
-                            <span className="text-xs text-slate-500">{row.ingredientId}</span>
-                          </div>
-                        }
-                        col2={<span className="font-semibold">{row.quantity}</span>}
-                        col3={<span>{row.expirationDate ?? "-"}</span>}
-                      />
-                    </div>
-                  ))}
-                </TableShell>
-              )}
-            </div>
-          </Card>
-
-          <Card
-            title="2) What can I cook today?"
-            subtitle="Click to get suggestions based on what you already have. If none are possible, you’ll get the minimal shopping list to unlock 1 recipe."
-          >
-            <div className="grid grid-cols-1 gap-4 md:grid-cols-12">
-              <div className="md:col-span-6">
-                <label className="mb-1 block text-xs font-medium text-slate-600">Date</label>
-                <Input type="date" value={date} onChange={(e) => setDate(e.target.value)} />
-              </div>
-
-              <div className="md:col-span-6">
-                <label className="mb-1 block text-xs font-medium text-slate-600">Meal</label>
-                <Select value={slot} onChange={(e) => setSlot(e.target.value as MealSlot)}>
-                  <option value="DESAYUNO">Breakfast</option>
-                  <option value="COMIDA">Lunch</option>
-                  <option value="CENA">Dinner</option>
-                </Select>
-              </div>
-            </div>
-
-            <div className="mt-4 flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
-              <div className="text-xs text-slate-500">
-                Status:{" "}
-                {!plan ? (
-                  <Pill>no plan</Pill>
-                ) : plan.kind === "SUGGESTION" ? (
-                  <Pill tone={plan.status === "ACEPTADA" ? "success" : "neutral"}>{plan.status}</Pill>
-                ) : (
-                  <Pill tone="warn">NEEDS_SHOPPING</Pill>
-                )}
-              </div>
-              <Button onClick={computePlan} disabled={busy}>
-                {busy ? "Working..." : "Show me a plan"}
-              </Button>
-            </div>
-
-            <div className="mt-6">
-              {!plan ? (
-                <div className="rounded-2xl border border-dashed border-slate-300 bg-white px-4 py-6 text-sm text-slate-600">
-                  Click <span className="font-semibold">Show me a plan</span> to get suggestions.
-                </div>
-              ) : plan.kind === "SUGGESTION" ? (
-                <div className="space-y-4">
-                  <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
-                    <div className="flex flex-wrap items-center gap-2">
-                      <Pill tone="success">{isAccepted ? "✅ Plan accepted" : "✅ You can cook now"}</Pill>
-                      <span className="text-xs text-slate-500">(stored as {plan.status})</span>
-                    </div>
-
-                    <div className="text-sm text-slate-700">
-                      {isAccepted ? (
-                        <>
-                          Accepted recipe: <span className="font-semibold">{selectedRecipeName}</span>
-                        </>
-                      ) : (
-                        <>
-                          Selected recipe: <span className="font-semibold">{selectedRecipeName}</span>
-                        </>
-                      )}
-                    </div>
-
-                    <Button
-                      variant="success"
-                      onClick={acceptCurrentSuggestion}
-                      disabled={busy || isAccepted}
-                      type="button"
-                    >
-                      {isAccepted ? "Already accepted" : busy ? "Accepting..." : "Accept selected recipe"}
-                    </Button>
-                  </div>
-
-                  <div className="overflow-hidden rounded-2xl border border-slate-200 bg-white">
-                    <div className="bg-slate-50 px-4 py-3 text-xs font-semibold text-slate-600">
-                      Suggested recipes
-                    </div>
-                    <div className="divide-y divide-slate-100">
-                      {visibleRecipes
-                        .slice()
-                        .sort((a, b) => a.position - b.position)
-                        .map((r) => (
-                          <button
-                            key={r.recipeId}
-                            type="button"
-                            onClick={() => {
-                              if (isAccepted) return;
-                              setSelectedRecipeId(r.recipeId);
-                            }}
-                            className={[
-                              "w-full text-left px-4 py-3 flex items-start justify-between gap-4",
-                              selectedRecipeId === r.recipeId ? "bg-emerald-50" : "hover:bg-slate-50",
-                              isAccepted ? "cursor-default" : "",
-                            ].join(" ")}
-                          >
-                            <div className="min-w-0">
-                              <div className="truncate text-sm font-semibold text-slate-900">{r.name}</div>
-                              <div className="truncate text-xs text-slate-500">recipeId: {r.recipeId}</div>
-                            </div>
-
-                            {selectedRecipeId === r.recipeId ? (
-                              <Pill tone="success">{isAccepted ? "Accepted" : "Selected"}</Pill>
-                            ) : (
-                              <Pill>#{r.position + 1}</Pill>
-                            )}
-                          </button>
-                        ))}
-                    </div>
-                  </div>
-
-                  <div className="text-xs text-slate-500">
-                    suggestionId:{" "}
-                    <code className="rounded bg-slate-100 px-1 py-0.5">{plan.suggestionId}</code>
-                  </div>
-                </div>
-              ) : (
-                <div className="space-y-4">
-                  <div className="flex items-center gap-2">
-                    <Pill tone="warn">🛒 No recipes possible</Pill>
-                    <div className="text-sm font-semibold text-slate-900">
-                      Recommended recipe: {plan.targetRecipe?.name ?? "(unknown recipe)"}
-                    </div>
-                  </div>
-
-                  <div className="overflow-hidden rounded-2xl border border-slate-200 bg-white">
-                    <div className="bg-slate-50 px-4 py-3 text-xs font-semibold text-slate-600">
-                      Minimal shopping list
-                    </div>
-                    <div className="divide-y divide-slate-100">
-                      {plan.shoppingList.items.map((it, idx) => (
-                        <div key={it.ingredientId} className={idx % 2 === 1 ? "bg-slate-50/40" : ""}>
-                          <div className="flex items-center justify-between gap-4 px-4 py-3">
-                            <div className="min-w-0">
-                              <div className="truncate text-sm font-medium text-slate-900">
-                                {ingredientNames[it.ingredientId] ?? it.ingredientId}
-                              </div>
-                              <div className="truncate text-xs text-slate-500">{it.ingredientId}</div>
-                            </div>
-                            <Pill tone="warn">x {it.missingAmount}</Pill>
-                          </div>
-                        </div>
-                      ))}
-                    </div>
-                  </div>
-
-                  <div className="rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm text-slate-700">
-                    After shopping, add the purchased ingredients to your inventory and click{" "}
-                    <span className="font-semibold">Show me a plan</span> again.
-                  </div>
-                </div>
-              )}
-            </div>
-          </Card>
-        </div>
-
-        <footer className="mt-6 text-xs text-slate-500">
-          Household: <code className="rounded bg-slate-100 px-1 py-0.5">{householdId}</code>
-        </footer>
+        {tab === "plan" ? renderPlanSection() : renderInventorySection()}
       </main>
+
+      <nav className="fixed inset-x-0 bottom-0 border-t border-slate-200 bg-white">
+        <div className="mx-auto flex max-w-md">
+          <button
+            type="button"
+            onClick={() => setTab("plan")}
+            className={[
+              "flex-1 px-4 py-3 text-sm font-medium",
+              tab === "plan" ? "bg-emerald-50 text-emerald-700" : "text-slate-600 hover:bg-slate-50",
+            ].join(" ")}
+          >
+            🍽️ Plan
+          </button>
+
+          <button
+            type="button"
+            onClick={() => setTab("inventory")}
+            className={[
+              "flex-1 px-4 py-3 text-sm font-medium",
+              tab === "inventory" ? "bg-emerald-50 text-emerald-700" : "text-slate-600 hover:bg-slate-50",
+            ].join(" ")}
+          >
+            🧺 Inventory
+          </button>
+        </div>
+      </nav>
     </div>
   );
 }

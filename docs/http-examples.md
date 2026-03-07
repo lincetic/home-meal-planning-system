@@ -31,6 +31,99 @@ Notes:
 - You can also register a new user and use the household returned by `/auth/me`.
 - The demo seed user is `demo@tfm.local` (see seed scripts).
 
+# Authentication Flow
+
+The system uses a **two-token authentication model**.
+
+## Access Token
+
+Short-lived JWT returned by:
+- `POST /auth/login`
+- `POST /auth/register`
+Used in requests:
+- `Authorization: Bearer <token>`
+
+---
+
+## Refresh Token
+
+A refresh token is stored in a **httpOnly cookie**.
+
+Used by:
+- `POST /auth/refresh`
+
+
+The frontend automatically calls this endpoint when the access token expires.
+
+If the refresh token is valid:
+
+- a new access token is returned
+- the original request is retried automatically
+
+If refresh fails:
+
+- the session is cleared
+- the user must login again.
+
+---
+
+# Login Example
+
+```powershell
+$loginBody = @{
+  email = "demo@tfm.local"
+  password = "Password123!"
+} | ConvertTo-Json
+
+$response = Invoke-RestMethod `
+  -Method Post `
+  -Uri http://127.0.0.1:3000/auth/login `
+  -ContentType "application/json" `
+  -Body $loginBody
+
+$token = $response.accessToken
+```
+Use token:
+```powershell
+Authorization: Bearer $token
+```
+# Refresh Token Example
+
+- `POST /auth/refresh`
+
+No body required.
+
+Uses cookie automatically.
+
+Example:
+```powershell
+Invoke-RestMethod `
+  -Method Post `
+  -Uri http://127.0.0.1:3000/auth/refresh
+```
+
+Response:
+```json
+{
+  "accessToken": "..."
+}
+```
+
+# Logout Example
+
+- `POST /auth/logout`
+
+Example:
+```powershell
+Invoke-RestMethod `
+  -Method Post `
+  -Uri http://127.0.0.1:3000/auth/logout
+```
+
+Logout will:
+- invalidate the refresh token cookie
+- require the user to login again.
+
 # 1️⃣ Authentication (REQUIRED for protected routes)
 
 All protected endpoints require a valid JWT.

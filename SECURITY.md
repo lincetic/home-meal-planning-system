@@ -10,21 +10,33 @@ This project handles user accounts and household data. Security must be designed
 - Basic OWASP Top 10 protections applied.
 - No sensitive data in logs (passwords, tokens).
 
-## 2) Auth & Session Strategy (MVP)
+## 2) Auth & Session Strategy (Implemented)
 
-Current MVP implementation:
+Current authentication model:
 
 - Auth: email + password
-- Password hashing: **Argon2**
-- Session: **JWT access token** returned on login/register
-- Access token is sent by clients via:
-  - `Authorization: Bearer <token>`
-- Refresh token rotation: not implemented yet (planned)
+- Password hashing: Argon2
+- Session model: short-lived JWT access token + refresh token
+- Refresh token stored in **httpOnly cookie**
+- Access token sent via `Authorization: Bearer`
+- Automatic refresh flow from frontend
+- Logout endpoint invalidates refresh cookie
 
-Operational notes:
+### Session Flow
 
-- JWT secret is provided via environment variable (`JWT_SECRET`).
-- JWT expiration is configurable (`JWT_EXPIRES_IN`, default 7d).
+1. User logs in or registers.
+2. Backend returns a **JWT access token**.
+3. Backend sets a **refresh token cookie (httpOnly)**.
+4. Client uses the access token for protected endpoints.
+5. If access token expires:
+   - frontend calls `/auth/refresh`
+   - backend validates refresh cookie
+   - new access token is issued
+6. If refresh fails:
+   - frontend clears session
+   - user must login again.
+
+This model improves security while maintaining a smooth user experience.
 
 ## 3) Authorization Rules
 
@@ -73,8 +85,21 @@ Rule:
 - Avoid installing unnecessary packages.
 
 ### A07 Identification & Authentication Failures
-- Rate limit login/register (planned / recommended for production).
-- Refresh token handling (future work).
+
+Mitigations implemented:
+
+- Passwords hashed using **Argon2**
+- Access tokens are **short-lived JWT**
+- Refresh tokens stored in **httpOnly cookies**
+- Access tokens never stored in cookies
+- Automatic refresh handled by frontend
+- Session invalidation through `/auth/logout`
+- Household membership validated on every protected endpoint
+
+Future improvements:
+- Refresh token rotation
+- Login rate limiting
+- optional MFA support
 
 ### A08 Software & Data Integrity Failures
 - Lockfile committed.
@@ -88,13 +113,22 @@ Rule:
 ### A10 SSRF
 - Future external fetches must validate URLs and block private IP ranges.
 
-## 5) Security Middleware (Backend MVP)
+## 5) Security Middleware (Backend)
 
-Recommended/optional additions (depending on scope/time):
-- `helmet` for security headers
-- rate limiter (Fastify plugin)
-- strict request validation (Zod already used)
-- centralized error handler (no stack traces in prod)
+Currently implemented:
+
+- Strict request validation using **Zod contracts**
+- Authentication middleware validating **JWT access tokens**
+- Household membership validation on protected routes
+- Secure cookie usage for refresh tokens
+- Centralized error handling
+- No sensitive data logged (passwords, tokens)
+
+Recommended future additions:
+
+- `helmet` security headers
+- login rate limiting
+- refresh token rotation
 
 ## 6) Data Protection
 
@@ -117,3 +151,23 @@ Minimum automated tests:
 
 Optional tests:
 - brute-force/rate limit behavior (if rate limiter is added)
+
+## 9) Session Security Summary
+
+The system uses a **two-token session model**:
+
+Access Token:
+- JWT
+- short-lived
+- sent in Authorization header
+
+Refresh Token:
+- stored in httpOnly cookie
+- not accessible to JavaScript
+- used only by `/auth/refresh`
+
+Logout:
+- clears refresh cookie
+- frontend removes access token
+
+This approach balances security with usability for mobile and web clients.

@@ -66,7 +66,7 @@ Dependencies always point **inwards**.
 - Owns and manages inventory items
 - Guarantees:
   - no negative quantities
-  - one item per ingredient (MVP)
+  - one item per ingredient
   - proper expiration handling
 
 #### InventoryItem (Entity)
@@ -100,7 +100,7 @@ The domain layer has **no knowledge of persistence, HTTP, or frameworks**.
 
 - **GenerateDailySuggestionUseCase**
   - Suggests meals based on inventory availability
-  - Can prioritize ingredients expiring soon (MVP heuristics)
+  - Prioritizes ingredients expiring soon
 
 - **GenerateShoppingListUseCase**
   - Generates shopping list from explicit ingredient requirements
@@ -111,23 +111,24 @@ The domain layer has **no knowledge of persistence, HTTP, or frameworks**.
   - Compares against inventory to determine missing items
 
 - **GenerateAndStoreDailySuggestionUseCase**
-  - Orchestrates suggestion generation + persistence (one per household/date/slot)
+  - Generates and persists a daily suggestion
 
 - **AcceptSuggestionUseCase**
   - Load suggestion + inventory + recipes
-  - Consume each recipe ingredient
-  - Persist inventory + set status accepted + persist acceptedRecipeId
+  - Consume selected recipe ingredients
+  - Persist inventory + set status ACEPTADA
 
 - **ModifySuggestionUseCase**
   - Load suggestion + recipes
   - Ensure all recipeIds exist
   - Persist: overwrite recipes + set status MODIFICADA
 
-- **Cooking Plan orchestration**
-  - GetCookingPlanUseCase
+- **GetCookingPlanUseCase**
+  - Orchestrates the main cooking decision flow
     - Returns:
-      - `kind="SUGGESTION"` (with `status` and `acceptedRecipeId` if accepted)
-      - `kind="NEEDS_SHOPPING"` (minimal list to unlock 1 recipe)
+      - `SUGGESTION`
+      - `NEEDS_SHOPPING`
+      - accepted state inside the suggestion model
   - Does not regenerate suggestions if already accepted.
 
 All use cases are covered by unit tests.
@@ -153,7 +154,7 @@ Repositories:
 - Load database rows and reconstruct domain aggregates
 - Persist domain state back to the database
 
-### Database model (main concepts)
+### Database model
 
 - `User`
   - email, passwordHash (Argon2), name
@@ -208,6 +209,8 @@ Auth:
 - `POST /auth/register`
 - `POST /auth/login`
 - `GET /auth/me`
+- `POST /auth/refresh`
+- `POST /auth/logout`
 
 Household-scoped (protected):
 - `POST /inventory/update`
@@ -241,46 +244,102 @@ This ensures:
 
 ---
 
-## 8. Testing strategy
+## 8. Authentication and session model
+
+The system now uses a two-token session model:
+
+### Access token
+- JWT
+- short-lived
+- sent in `Authorization: Bearer ...`
+
+### Refresh token
+- longer-lived
+- stored in httpOnly cookie
+- used only by /auth/refresh
+
+### Session flow
+- login/register returns access token
+- refresh token is set as cookie
+- frontend retries protected calls automatically after refresh
+- logout clears refresh cookie and local access token
+This design improves security and UX:
+- short-lived access credentials
+- reduced re-login frequency
+- protection against direct JavaScript access to refresh token
+
+---
+
+## 9. Web Demo architecture
+
+The Web Demo has evolved from a single-page dense layout into a mobile-first two-tab interface.
+
+### Current UI structure
+- **Plan tab**
+  - primary entry point
+  - shows today’s suggestion / accepted recipe / shopping fallback
+- **Inventory tab**
+  - ingredient search
+  - add inventory items
+  - inventory list and expirations
+
+### Why this matters architecturally
+- The backend remains unchanged
+- The frontend reorganizes the same use cases around a more focused user journey
+- The main decision flow is now centered on the daily cooking plan, which better reflects the project’s main purpose
+
+## 10. Testing strategy
 
 - **Domain tests**: entities and value objects
 - **Application tests**: use cases (business behavior)
 - **HTTP tests**:
-  - auth routes
-  - authorization checks (401 / 403 / 200)
+  - unauthenticated → 401
+  - wrong household → 403
+  - correct household → 200
+- **Integration/manual tests**: end-to-end flow through Web Demo
 
 Tests are executed using **Vitest**.
 
 ---
 
-## 9. Current system state
+## 11. Current system state
 
 ### Completed
 - Clean Architecture structure
 - Domain modeling (Inventory, Recipe)
-- Persistence with PostgreSQL + Prisma
-- Suggestion persistence (daily, per household/date/slot)
-- Cooking Plan orchestration endpoint (`POST /plan/today`)
+- Inventory persistence with PostgreSQL
+- Recipe persistence with PostgreSQL
+- Suggestion persistence
+- Cooking Plan use case (`/plan/today`)
 - Shopping list generation
-- Runtime contract validation (request + response)
-- Web Demo (React + Tailwind) with login/register
+- Runtime contract validation
+- Web Demo (React + Tailwind)
 - End-to-end flow operational
-- Suggestion state machine: `PROPUESTA → ACEPTADA` (and `MODIFICADA`)
-- `acceptedRecipeId` persistence + idempotent acceptance behavior
-- Household membership authorization (401/403 behavior)
+- Persisted meal suggestions per household + date + slot
+- Suggestion state machine: PROPUESTA → ACEPTADA
+- `acceptedRecipeId` persistence
+- Idempotent acceptance behavior
+- Cooking Plan orchestration endpoint `/plan/today`
+- Authentication and authorization
+- Refresh token in cookie httpOnly
+- Frontend automatic token refresh
+- Mobile-first tab-based UI (`Plan` / `Inventory`)
 
 ### Not implemented yet (future work)
-- Refresh token rotation
+- Native mobile app
+- Refresh token persistence / rotation store in database
 - Password reset flow
-- Multi-user household management UI (invite/join)
 - Nutritional analysis
+- Admin panel
 
 ---
 
-## 10. Summary
+## 12. Summary
 
 The current architecture provides:
 - A clean separation between business logic and infrastructure
 - A testable, evolvable core
-- A secured API foundation (auth + household authorization)
-- A working demo flow suitable for TFM evaluation
+- A secure authentication/session baseline
+- A frontend demo aligned with mobile-first usage
+
+This structure supports incremental development while keeping technical debt low.

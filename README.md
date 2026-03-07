@@ -11,7 +11,8 @@ El sistema:
 - Si no es posible, genera la lista mínima de compra para desbloquear una receta.
 - Permite aceptar sugerencias y consumir inventario.
 - Prioriza el uso de ingredientes disponibles.
-- Protege los datos mediante autenticación y autorización por hogar.
+- Incluye autenticación con sesión basada en access token + refresh token.
+- Presenta una Web Demo con interfaz mobile-first separada en dos pantallas principales: **Plan** e **Inventory**.
 
 El sistema está diseñado bajo principios de **Clean Architecture**, con una API backend y una Web Demo funcional.
 
@@ -20,14 +21,16 @@ El sistema está diseñado bajo principios de **Clean Architecture**, con una AP
 ## b) Stack tecnológico utilizado
 
 ### Backend
-- Lenguaje: TypeScript
-- Framework HTTP: Fastify
-- Arquitectura: Clean Architecture (DDD-light)
-- Base de datos: PostgreSQL
-- ORM: Prisma
-- Validación runtime: Zod
-- Testing: Vitest
-- Autenticación: JWT + Argon2
+- **Lenguaje**: TypeScript
+- **Framework HTTP**: Fastify
+- **Arquitectura**: Clean Architecture (DDD-light)
+- **Base de datos**: PostgreSQL
+- **ORM**: Prisma
+- **Validación runtime**: Zod
+- **Testing**: Vitest
+- **Autenticación**:
+  - JWT access token
+  - Refresh token en cookie httpOnly
 
 ### Frontend (Web Demo)
 - React
@@ -72,6 +75,8 @@ Seed:
 
 ```bash
 pnpm -C apps/api prisma db seed
+pnpm -C apps/api seed:ingredients
+pnpm -C apps/api seed:recipes
 ```
 
 ### 3. Ejecutar backend
@@ -105,50 +110,32 @@ http://localhost:5173
 ```bash
 apps/
 ├── api/        # Backend API (Clean Architecture)
-├── web/        # Web Demo (React + Tailwind)
+├── web/        # Web Demo (React + Tailwind, mobile-first)
 ├── mobile/     # App móvil (futuro)
 └── admin/      # Panel administración (futuro)
 
 packages/
 └── contracts/  # Contratos compartidos (Zod + TS)
 ```
-### Modelo de Household (Decisión MVP)
-
-En el MVP actual:
-
-- Al registrarse un usuario:
-  - Se crea automáticamente un nuevo Household.
-  - El usuario queda como OWNER de dicho household.
-  - Se clonan las recetas demo iniciales en ese household.
-
-Esto permite:
-
-- Onboarding inmediato sin flujo de invitaciones.
-- Aislamiento total entre usuarios.
-- Escalabilidad futura hacia modelo multiusuario (invitar miembros).
-
-En versiones futuras:
-
-- Se podrá permitir múltiples usuarios dentro del mismo household.
-- Se podrá crear household explícitamente e invitar miembros.
----
 
 ## e) Funcionalidades principales actuales
 
-### Autenticación
+### Autenticación y sesión
 
-- Registro de usuario (POST /auth/register)
-- Login (POST /auth/login)
-- JWT access token
-- Endpoint protegido /auth/me
-- Protección por household (401 / 403)
+- Registro de usuario
+- Login con email y contraseña
+- Endpoint /auth/me
+- Access token JWT de corta duración
+- Refresh token en cookie httpOnly
+- Logout completo
+- Renovación automática de sesión desde frontend cuando expira el access token
 
 ### Inventario
 
 - Añadir ingredientes
 - Cantidades y fechas de caducidad
 - Persistencia en PostgreSQL
-- Protección por household
+- Consulta protegida por autenticación y autorización
 
 ### Cooking Plan (flujo principal)
 
@@ -156,26 +143,37 @@ Endpoint: **POST /plan/today**
 
 Devuelve:
 
-- SUGGESTION
+- `SUGGESTION`
   - Recetas posibles con inventario actual
-  - suggestionId persistido
-  - status: PROPUESTA | ACEPTADA | MODIFICADA
-  - acceptedRecipeId si procede
-- NEEDS_SHOPPING
+  - `suggestionId` persistido
+  - Puede incluir `acceptedRecipeId` cuando la sugerencia ya fue aceptada
+- `NEEDS_SHOPPING`
   - Receta objetivo
   - Lista mínima de compra
 
 ### Accept Suggestion
 
 - Consume inventario
-- Actualiza estado
-- Persistencia de acceptedRecipeId
-- Comportamiento idempotente
+- Actualiza estado a aceptada
+- Mantiene comportamiento idempotente
 
 ### Shopping List
 
 - Desde recetas explícitas
 - Desde plan automático
+
+### Web Demo mobile-first
+
+La Web Demo ya no presenta todo en una sola vista principal.
+Ahora se organiza como una experiencia tipo app móvil con dos pestañas:
+- **Plan**
+  - muestra la receta sugerida o aceptada del día
+  - permite aceptar una receta
+  - muestra alternativas o lista mínima de compra
+- **Inventory**
+  - permite buscar ingredientes
+  - añadir ingredientes al inventario
+  - visualizar existencias y caducidad
 
 ---
 
@@ -185,12 +183,32 @@ Devuelve:
 ✔ Arquitectura limpia implementada
 ✔ Persistencia real con PostgreSQL
 ✔ Validación estricta con contracts
-✔ Web demo funcional y responsive (Tailwind)
+✔ Web demo funcional y responsive
+✔ UI mobile-first con tabs Plan / Inventory
 ✔ Flujo end-to-end operativo
-✔ Persistencia de sugerencias por household + date + slot
-✔ Estado ACEPTADA persistente
-✔ Protección completa por household
+✔ Autenticación y autorización implementadas
+✔ Refresh token con cookie httpOnly
 ```
+
+---
+
+## g) Flujo de sesión actual
+
+1. El usuario hace login o register.
+2. El backend devuelve un access token.
+3. El backend guarda un refresh token en cookie httpOnly.
+4. El frontend usa el access token para endpoints protegidos.
+5. Si el access token expira:
+  - el frontend llama a /auth/refresh
+  - el backend valida la cookie refresh
+  - devuelve un nuevo access token
+  - la petición original se reintenta automáticamente
+6. Si el refresh también falla:
+  - el frontend cierra sesión localmente
+  - el usuario vuelve a la pantalla de login
+7. En logout:
+  - se elimina la cookie refresh
+  - se limpia el access token del frontend
 
 ---
 
@@ -199,3 +217,4 @@ Devuelve:
 - [Architecture overview](docs/architecture.md)
 - [HTTP API examples](docs/http-examples.md)
 - [Architecture Decision Record](docs/adr.md)
+- [C4 model](docs/c4.md)

@@ -252,3 +252,84 @@ Future changes to household behavior:
 - Must not bypass membership checks
 
 Household remains the security boundary.
+
+---
+
+# Web Demo UI Architecture
+
+The current Web Demo has evolved into a **mobile-first interface** that reflects the intended user journey of the system.
+
+The UI is organized around two main tabs:
+
+## Plan (primary screen)
+
+Purpose:
+Provide a quick answer to the daily question:
+
+> "What can I cook today?"
+
+This tab:
+
+- requests the cooking plan (`POST /plan/today`)
+- shows one of three states:
+  - `SUGGESTION`
+  - `ACEPTADA`
+  - `NEEDS_SHOPPING`
+
+### SUGGESTION
+User can:
+
+- select between suggested recipes
+- accept one recipe
+- acceptance consumes inventory
+
+### ACCEPTED
+Shows:
+
+- accepted recipe
+- suggestion id
+- recipe already consumed from inventory
+
+### NEEDS_SHOPPING
+Shows:
+
+- target recipe
+- minimal missing ingredients
+
+---
+
+## Inventory (secondary screen)
+
+Purpose:
+Maintain the household food inventory.
+
+User can:
+
+- search ingredients (`/ingredients/search`)
+- add inventory items (`/inventory/update`)
+- see ingredient quantities
+- see expiration dates
+
+Updating inventory may unlock new recipe suggestions.
+
+---
+
+## UI Navigation
+
+The Web Demo uses a **bottom tab navigation**:
+
+Plan | Inventory
+
+Plan is the default screen.
+
+---
+
+## Why mobile-first
+
+Although the current demo runs in a browser, the system is designed to evolve into a **mobile application**.
+
+Designing the Web Demo as mobile-first allows:
+
+- validation of the user journey
+- reuse of API flows
+- easier transition to a native mobile client later.
