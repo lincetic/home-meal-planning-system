@@ -16,3 +16,6 @@ coverage
 # Env
 .env
 .env.*
+!.env.example
+coverage
+.prisma

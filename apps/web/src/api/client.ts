@@ -1,5 +1,7 @@
 const TOKEN_KEY = "tfm_access_token";
 
+const API_BASE_URL = import.meta.env.VITE_API_BASE_URL?.trim() || "/api";
+
 export function setAccessToken(token: string) {
     localStorage.setItem(TOKEN_KEY, token);
 }
@@ -13,8 +15,7 @@ export function getAccessToken(): string | null {
 }
 
 async function refreshAccessToken(): Promise<string | null> {
-    // OJO: el endpoint real debe existir en el backend
-    const res = await fetch("/api/auth/refresh", {
+    const res = await fetch(`${API_BASE_URL}/auth/refresh`, {
         method: "POST",
         credentials: "include",
     });
@@ -22,67 +23,60 @@ async function refreshAccessToken(): Promise<string | null> {
     if (!res.ok) return null;
 
     const data = await res.json();
-    const token = data?.accessToken;
-    if (typeof token !== "string" || token.length === 0) return null;
-
-    setAccessToken(token);
-    return token;
+    setAccessToken(data.accessToken);
+    return data.accessToken;
 }
 
-function parseJsonSafe(text: string) {
-    try {
-        return text ? JSON.parse(text) : null;
-    } catch {
-        return null;
-    }
+function buildUrl(path: string) {
+    if (path.startsWith("http://") || path.startsWith("https://")) return path;
+    return `${API_BASE_URL}${path}`;
 }
 
 export async function apiFetch<T>(path: string, init?: RequestInit): Promise<T> {
+    const token = getAccessToken();
+
     const headers: Record<string, string> = {
         "Content-Type": "application/json",
         ...(init?.headers as any),
     };
 
-    const token = getAccessToken();
-    if (token) headers["Authorization"] = `Bearer ${token}`;
+    if (token) {
+        headers["Authorization"] = `Bearer ${token}`;
+    }
 
-    const doFetch = async () => {
-        return fetch(`/api${path}`, {
+    const doFetch = () =>
+        fetch(buildUrl(path), {
             ...init,
             headers,
             credentials: "include",
         });
-    };
 
     const res = await doFetch();
     const text = await res.text();
-    const data = parseJsonSafe(text);
+    const data = text ? JSON.parse(text) : null;
 
-    if (res.ok) return data as T;
+    if (!res.ok) {
+        if (res.status === 401) {
+            const newToken = await refreshAccessToken();
 
-    // 🔐 Si es 401, intentamos refresh UNA vez (si no estamos ya en refresh)
-    const isRefreshCall = path.startsWith("/auth/refresh");
-    if (res.status === 401 && !isRefreshCall) {
-        const newToken = await refreshAccessToken();
+            if (newToken) {
+                headers["Authorization"] = `Bearer ${newToken}`;
 
-        if (newToken) {
-            headers["Authorization"] = `Bearer ${newToken}`;
+                const retry = await doFetch();
+                const textRetry = await retry.text();
+                const dataRetry = textRetry ? JSON.parse(textRetry) : null;
 
-            const retry = await doFetch();
-            const textRetry = await retry.text();
-            const dataRetry = parseJsonSafe(textRetry);
+                if (!retry.ok) throw new Error(dataRetry?.error ?? `HTTP ${retry.status}`);
 
-            if (retry.ok) return dataRetry as T;
+                return dataRetry as T;
+            }
 
-            // si incluso el retry falla, cae al error normal
-            throw new Error(dataRetry?.error ?? `HTTP ${retry.status}`);
+            clearAccessToken();
+            window.dispatchEvent(new Event("auth:expired"));
         }
 
-        // refresh falló => cerramos sesión en el front
-        clearAccessToken();
-        window.dispatchEvent(new Event("auth:expired"));
-        throw new Error(data?.error ?? "Unauthorized");
+        throw new Error(data?.error ?? `HTTP ${res.status}`);
     }
 
-    throw new Error(data?.error ?? `HTTP ${res.status}`);
+    return data as T;
 }
