@@ -25,6 +25,7 @@ import {
   type MealSlot,
   type CookingPlan,
   type CookingPlanSuggestion,
+  type CookingPlanNeedsShopping,
   type InventoryDto,
 } from "./api/endpoints";
 
@@ -33,7 +34,6 @@ type MobileTab = "plan" | "inventory";
 export default function App() {
   const [householdId, setHouseholdId] = useState<string>(DEFAULT_HOUSEHOLD_ID);
 
-  // Auth
   const [authUser, setAuthUser] = useState<AuthUser | null>(null);
   const [authMode, setAuthMode] = useState<"login" | "register">("login");
   const [authBusy, setAuthBusy] = useState(false);
@@ -43,29 +43,23 @@ export default function App() {
   const [authPassword, setAuthPassword] = useState("Password123!");
   const [authName, setAuthName] = useState("Demo User");
 
-  // Mobile tabs
   const [tab, setTab] = useState<MobileTab>("plan");
 
-  // Inventory view
   const [inventory, setInventory] = useState<InventoryDto | null>(null);
   const [ingredientNames, setIngredientNames] = useState<Record<string, string>>({});
 
-  // Add ingredient (autocomplete)
   const [q, setQ] = useState("");
   const [results, setResults] = useState<Ingredient[]>([]);
   const [selected, setSelected] = useState<Ingredient | null>(null);
   const [amount, setAmount] = useState<number>(1);
   const [expirationDate, setExpirationDate] = useState<string>("");
 
-  // Plan
   const [date, setDate] = useState("2026-02-03");
   const [slot, setSlot] = useState<MealSlot>("CENA");
   const [plan, setPlan] = useState<CookingPlan | null>(null);
 
-  // Selected recipe inside current suggestion
   const [selectedRecipeId, setSelectedRecipeId] = useState<string>("");
 
-  // UI
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState<string>("");
 
@@ -248,7 +242,9 @@ export default function App() {
   }
 
   async function acceptCurrentSuggestion() {
-    if (!plan || plan.kind !== "SUGGESTION") return;
+    if (!plan) return;
+    if (plan.kind === "ACCEPTED") return;
+    if (plan.kind !== "SUGGESTION") return;
     if (plan.status === "ACEPTADA") return;
 
     const chosenId = selectedRecipeId || plan.recipes[0]?.recipeId;
@@ -285,19 +281,25 @@ export default function App() {
 
   const invRows = inventory?.items ?? [];
 
-  const isAccepted = plan?.kind === "SUGGESTION" && plan.status === "ACEPTADA";
+  const isAccepted =
+    (plan?.kind === "SUGGESTION" && plan.status === "ACEPTADA") ||
+    plan?.kind === "ACCEPTED";
 
   const selectedRecipeName =
     plan?.kind === "SUGGESTION"
       ? plan.recipes.find((r) => r.recipeId === selectedRecipeId)?.name ?? "(none)"
-      : "(none)";
+      : plan?.kind === "ACCEPTED"
+        ? plan.acceptedRecipe.name
+        : "(none)";
 
   const visibleRecipes =
     plan?.kind === "SUGGESTION"
       ? isAccepted && plan.acceptedRecipeId
         ? plan.recipes.filter((r) => r.recipeId === plan.acceptedRecipeId)
         : plan.recipes
-      : [];
+      : plan?.kind === "ACCEPTED"
+        ? [{ ...plan.acceptedRecipe, position: 0 }, ...plan.alternatives]
+        : [];
 
   async function submitAuth() {
     setAuthBusy(true);
@@ -410,10 +412,7 @@ export default function App() {
           </div>
         </Card>
 
-        <Card
-          title="Current items"
-          subtitle={`${invRows.length} item(s) in your household`}
-        >
+        <Card title="Current items" subtitle={`${invRows.length} item(s) in your household`}>
           {invRows.length === 0 ? (
             <div className="rounded-2xl border border-dashed border-slate-300 bg-white px-4 py-6 text-sm text-slate-600">
               Inventory is empty. Add a few ingredients to start.
@@ -446,10 +445,7 @@ export default function App() {
   function renderPlanSection() {
     return (
       <div className="space-y-4">
-        <Card
-          title="Today’s plan"
-          subtitle="Get recipe suggestions based on what you already have."
-        >
+        <Card title="Today’s plan" subtitle="Get recipe suggestions based on what you already have.">
           <div className="grid grid-cols-1 gap-3">
             <div>
               <label className="mb-1 block text-xs font-medium text-slate-600">Date</label>
@@ -478,7 +474,9 @@ export default function App() {
               ? "No plan loaded yet."
               : plan.kind === "SUGGESTION"
                 ? `Status: ${plan.status}`
-                : "Status: NEEDS_SHOPPING"
+                : plan.kind === "ACCEPTED"
+                  ? "Status: ACEPTADA"
+                  : "Status: NEEDS_SHOPPING"
           }
         >
           {!plan ? (
@@ -553,6 +551,53 @@ export default function App() {
                 <code className="rounded bg-slate-100 px-1 py-0.5">{plan.suggestionId}</code>
               </div>
             </div>
+          ) : plan.kind === "ACCEPTED" ? (
+            <div className="space-y-4">
+              <div className="rounded-2xl border border-emerald-200 bg-emerald-50 p-4">
+                <div className="flex items-center gap-2">
+                  <Pill tone="success">ACEPTADA</Pill>
+                </div>
+                <div className="mt-2 text-sm text-slate-500">Accepted recipe</div>
+                <div className="mt-1 text-lg font-semibold text-slate-900">
+                  {plan.acceptedRecipe.name}
+                </div>
+              </div>
+
+              <div className="overflow-hidden rounded-2xl border border-slate-200 bg-white">
+                <div className="bg-slate-50 px-4 py-3 text-xs font-semibold text-slate-600">
+                  Alternatives
+                </div>
+                <div className="divide-y divide-slate-100">
+                  {[{ ...plan.acceptedRecipe, position: 0 }, ...plan.alternatives]
+                    .sort((a, b) => a.position - b.position)
+                    .map((r) => (
+                      <div
+                        key={r.recipeId}
+                        className={[
+                          "w-full text-left px-4 py-3 flex items-start justify-between gap-4",
+                          r.recipeId === plan.acceptedRecipe.recipeId ? "bg-emerald-50" : "",
+                        ].join(" ")}
+                      >
+                        <div className="min-w-0">
+                          <div className="truncate text-sm font-semibold text-slate-900">{r.name}</div>
+                          <div className="truncate text-xs text-slate-500">recipeId: {r.recipeId}</div>
+                        </div>
+
+                        {r.recipeId === plan.acceptedRecipe.recipeId ? (
+                          <Pill tone="success">Accepted</Pill>
+                        ) : (
+                          <Pill>#{r.position + 1}</Pill>
+                        )}
+                      </div>
+                    ))}
+                </div>
+              </div>
+
+              <div className="text-xs text-slate-500">
+                suggestionId:{" "}
+                <code className="rounded bg-slate-100 px-1 py-0.5">{plan.suggestionId}</code>
+              </div>
+            </div>
           ) : (
             <div className="space-y-4">
               <div className="rounded-2xl border border-amber-200 bg-amber-50 p-4">
@@ -570,7 +615,7 @@ export default function App() {
                   Minimal shopping list
                 </div>
                 <div className="divide-y divide-slate-100">
-                  {plan.shoppingList.items.map((it, idx) => (
+                  {(plan as CookingPlanNeedsShopping).shoppingList.items.map((it, idx) => (
                     <div key={it.ingredientId} className={idx % 2 === 1 ? "bg-slate-50/40" : ""}>
                       <div className="flex items-center justify-between gap-4 px-4 py-3">
                         <div className="min-w-0">
@@ -617,14 +662,14 @@ export default function App() {
             right={
               <div className="flex gap-2">
                 <Button
-                  variant={authMode === "login" ? "secondary" : "ghost"}
+                  variant="secondary"
                   onClick={() => setAuthMode("login")}
                   type="button"
                 >
                   Login
                 </Button>
                 <Button
-                  variant={authMode === "register" ? "secondary" : "ghost"}
+                  variant="secondary"
                   onClick={() => setAuthMode("register")}
                   type="button"
                 >
