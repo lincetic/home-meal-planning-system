@@ -212,6 +212,25 @@ Ahora se organiza como una experiencia tipo app móvil con dos pestañas:
 
 ---
 
+## Despliegue / Deployment
+
+### Live Demo
+
+Frontend  
+https://home-meal-planning-system-web.vercel.app
+
+Backend API  
+https://home-meal-planning-system.onrender.com
+
+### Demo user
+
+email: demo@tfm.local  
+password: Password123!
+
+**IMPORTANTE**: Si el backend está inactivo, la primera solicitud puede tardar unos segundos porque Render pone en suspensión el servicio cuando la aplicaicon no se ha usado durante un tiempo.
+
+---
+
 ## Documentación adicional
 
 - [Architecture overview](docs/architecture.md)
