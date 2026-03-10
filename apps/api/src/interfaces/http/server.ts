@@ -14,6 +14,7 @@ import { assertHouseholdAccess } from "./auth/household-access";
 
 import Fastify from "fastify";
 import cookie from "@fastify/cookie";
+import cors from "@fastify/cors";
 import {
     zUpdateInventoryRequest,
     zUpdateInventoryResponse,
@@ -100,6 +101,14 @@ const app = Fastify({ logger: true });
 
 app.register(cookie, {
     secret: process.env.COOKIE_SECRET || "dev-secret",
+});
+
+app.register(cors, {
+    origin: [
+        "http://localhost:5173",
+        process.env.FRONTEND_URL
+    ].filter(Boolean),
+    credentials: true,
 });
 
 // Manual DI (por ahora)
