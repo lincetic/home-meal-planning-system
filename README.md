@@ -153,9 +153,12 @@ Devuelve:
 
 ### Accept Suggestion
 
-- Consume inventario
+- Permite aceptar una receta completa (`FULL`) o media receta (`HALF`)
+- Consume del inventario las cantidades proporcionales
+- Mantiene `FULL` como valor por defecto para clientes existentes
 - Actualiza estado a aceptada
-- Mantiene comportamiento idempotente
+- Persiste la receta y la porción aceptadas
+- Mantiene comportamiento idempotente sin consumir dos veces
 
 ### Shopping List
 
@@ -169,6 +172,7 @@ Ahora se organiza como una experiencia tipo app móvil con dos pestañas:
 - **Plan**
   - muestra la receta sugerida o aceptada del día
   - permite aceptar una receta
+  - permite elegir entre receta completa y media receta
   - muestra alternativas o lista mínima de compra
 - **Inventory**
   - permite buscar ingredientes

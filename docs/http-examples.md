@@ -283,11 +283,14 @@ Invoke-RestMethod `
 
 # 7️⃣ POST /suggestions/accept (Protected)
 
-Accepts a suggestion and (optionally) selects which recipe to accept.
+Accepts a suggestion, optionally selects which recipe to accept, and consumes either
+the full recipe or half of every ingredient requirement. If `portion` is omitted,
+it defaults to `FULL`.
 ```powershell
 $body = @{
   suggestionId = "<PASTE_SUGGESTION_ID>"
   recipeId = "<PASTE_RECIPE_ID_FROM_SUGGESTION>"
+  portion = "HALF" # FULL | HALF
 } | ConvertTo-Json
 
 Invoke-RestMethod `
@@ -296,6 +299,17 @@ Invoke-RestMethod `
   -Headers @{ Authorization = "Bearer $token" } `
   -ContentType "application/json" `
   -Body $body
+```
+
+Example response:
+
+```json
+{
+  "suggestionId": "11111111-1111-4111-8111-111111111111",
+  "status": "ACEPTADA",
+  "acceptedRecipeId": "22222222-2222-4222-8222-222222222222",
+  "acceptedPortion": "HALF"
+}
 ```
 
 # 8️⃣ POST /shopping-list/from-recipes (Protected)

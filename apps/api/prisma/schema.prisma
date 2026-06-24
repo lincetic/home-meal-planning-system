@@ -75,6 +75,11 @@ enum MealSlot {
   CENA
 }
 
+enum RecipePortion {
+  FULL
+  HALF
+}
+
 model MealSuggestion {
   id          String           @id @default(uuid())
   householdId String
@@ -84,6 +89,7 @@ model MealSuggestion {
 
   acceptedRecipeId String?
   acceptedRecipe   Recipe? @relation("AcceptedRecipe", fields: [acceptedRecipeId], references: [id])
+  acceptedPortion  RecipePortion @default(FULL)
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt

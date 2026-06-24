@@ -4,6 +4,7 @@ import {
     SuggestionRepository,
     SuggestionStatus,
 } from "../../../application/ports/suggestion-repository";
+import type { RecipePortionValue } from "../../../domain/value-objects/recipe-portion";
 
 function toYYYYMMDD(d: Date): string {
     return d.toISOString().slice(0, 10);
@@ -17,6 +18,10 @@ function toDate(dateYYYYMMDD: string): Date {
 function normalizeAcceptedRecipeId(v: unknown): string | null {
     if (typeof v === "string" && v.trim().length > 0) return v;
     return null;
+}
+
+function normalizeAcceptedPortion(v: unknown): RecipePortionValue {
+    return v === "HALF" ? "HALF" : "FULL";
 }
 
 export class PrismaSuggestionRepository implements SuggestionRepository {
@@ -36,6 +41,10 @@ export class PrismaSuggestionRepository implements SuggestionRepository {
         // If it's undefined (typical "generate suggestion" flow), DO NOT touch DB value.
         const acceptedRecipePatch =
             typeof raw === "string" ? { acceptedRecipeId: normalized } : {};
+        const acceptedPortionPatch =
+            data.acceptedPortion !== undefined
+                ? { acceptedPortion: normalizeAcceptedPortion(data.acceptedPortion) }
+                : {};
 
         const upserted = await prisma.mealSuggestion.upsert({
             where: {
@@ -52,6 +61,7 @@ export class PrismaSuggestionRepository implements SuggestionRepository {
                 status: data.status as any,
                 // On create it is safe to store normalized (string|null)
                 acceptedRecipeId: normalized,
+                acceptedPortion: normalizeAcceptedPortion(data.acceptedPortion),
                 recipes: {
                     create: data.recipes.map((r) => ({
                         recipeId: r.recipeId,
@@ -64,6 +74,7 @@ export class PrismaSuggestionRepository implements SuggestionRepository {
                 status: data.status as any,
                 // ✅ Don't wipe acceptedRecipeId accidentally
                 ...acceptedRecipePatch,
+                ...acceptedPortionPatch,
                 recipes: {
                     deleteMany: {},
                     create: data.recipes.map((r) => ({
@@ -83,6 +94,7 @@ export class PrismaSuggestionRepository implements SuggestionRepository {
             slot: upserted.slot as any,
             status: upserted.status as SuggestionStatus,
             acceptedRecipeId: normalizeAcceptedRecipeId(upserted.acceptedRecipeId),
+            acceptedPortion: normalizeAcceptedPortion(upserted.acceptedPortion),
             recipes: upserted.recipes
                 .sort((a, b) => a.position - b.position)
                 .map((r) => ({
@@ -116,6 +128,7 @@ export class PrismaSuggestionRepository implements SuggestionRepository {
             slot: found.slot as any,
             status: found.status as SuggestionStatus,
             acceptedRecipeId: normalizeAcceptedRecipeId(found.acceptedRecipeId),
+            acceptedPortion: normalizeAcceptedPortion(found.acceptedPortion),
             recipes: found.recipes
                 .sort((a, b) => a.position - b.position)
                 .map((r) => ({
@@ -135,11 +148,15 @@ export class PrismaSuggestionRepository implements SuggestionRepository {
 
     async setAcceptedRecipe(
         suggestionId: string,
-        recipeId: string
+        recipeId: string,
+        portion: RecipePortionValue
     ): Promise<void> {
         await prisma.mealSuggestion.update({
             where: { id: suggestionId },
-            data: { acceptedRecipeId: recipeId },
+            data: {
+                acceptedRecipeId: recipeId,
+                acceptedPortion: portion,
+            },
         });
     }
 
@@ -158,6 +175,7 @@ export class PrismaSuggestionRepository implements SuggestionRepository {
             slot: found.slot as any,
             status: found.status as SuggestionStatus,
             acceptedRecipeId: normalizeAcceptedRecipeId(found.acceptedRecipeId),
+            acceptedPortion: normalizeAcceptedPortion(found.acceptedPortion),
             recipes: found.recipes
                 .sort((a, b) => a.position - b.position)
                 .map((r) => ({

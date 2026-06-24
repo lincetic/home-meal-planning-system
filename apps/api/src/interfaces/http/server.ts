@@ -76,6 +76,10 @@ import { zGetDailySuggestionQuery } from "@tfm/contracts";
 
 import { zAcceptSuggestionRequest, zAcceptSuggestionResponse } from "@tfm/contracts";
 import { AcceptSuggestionUseCase } from "../../application/use-cases/accept-suggestion/accept-suggestion.usecase";
+import {
+    toAcceptSuggestionInput,
+    toAcceptSuggestionResponse,
+} from "../mappers/accept-suggestion.mapper";
 
 import { zModifySuggestionRequest, zModifySuggestionResponse } from "@tfm/contracts";
 import { ModifySuggestionUseCase } from "../../application/use-cases/modify-suggestion/modify-suggestion.usecase";
@@ -562,19 +566,38 @@ app.post("/suggestions/accept", async (request, reply) => {
     }
 
     try {
-        //const out = await acceptSuggestionUC.execute({ suggestionId: parsedReq.data.suggestionId });
-        const out = await acceptSuggestionUC.execute({
-            suggestionId: parsedReq.data.suggestionId,
-            recipeId: parsedReq.data.recipeId,
-        });
+        const { userId } = requireAuth(request);
+        const suggestion = await suggestionRepo.getById(
+            parsedReq.data.suggestionId
+        );
+        if (!suggestion) throw new Error("Suggestion not found");
+        await assertHouseholdAccess(userId, suggestion.householdId);
 
-        const parsedRes = zAcceptSuggestionResponse.safeParse(out);
+        const out = await acceptSuggestionUC.execute(
+            toAcceptSuggestionInput(parsedReq.data)
+        );
+
+        const parsedRes = zAcceptSuggestionResponse.safeParse(
+            toAcceptSuggestionResponse(out)
+        );
         if (!parsedRes.success) return reply.status(500).send({ error: "Invalid response shape" });
         return reply.status(200).send(parsedRes.data);
     } catch (e: any) {
+        const message = String(e?.message ?? "");
+        if (message === "AUTH_MISSING" || message === "AUTH_INVALID") {
+            return reply.status(401).send({ error: "Unauthorized" });
+        }
+        if (message === "HOUSEHOLD_FORBIDDEN") {
+            return reply.status(403).send({ error: "Forbidden" });
+        }
+
         // MVP error mapping (improve later)
         if (String(e?.message).includes("not found")) return reply.status(404).send({ error: e.message });
-        if (String(e?.message).includes("negative") || String(e?.message).includes("insufficient"))
+        if (
+            String(e?.message).includes("negative") ||
+            String(e?.message).includes("insufficient") ||
+            String(e?.message).includes("Not enough inventory")
+        )
             return reply.status(409).send({ error: e.message });
         if (String(e?.message).includes("not part of the suggestion"))
             return reply.status(400).send({ error: e.message });

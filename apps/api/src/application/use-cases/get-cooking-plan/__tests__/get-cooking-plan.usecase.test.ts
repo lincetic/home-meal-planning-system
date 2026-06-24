@@ -114,6 +114,7 @@ describe("GetCookingPlanUseCase", () => {
             date: "2026-02-03",
             slot: "CENA",
             acceptedRecipeId: null,
+            acceptedPortion: null,
             recipes: [{ recipeId: "r1", name: "Milk & Cereal", position: 0 }],
         });
     });
@@ -177,6 +178,7 @@ describe("GetCookingPlanUseCase", () => {
                 { recipeId: "r2", name: "Rice Bowl", position: 1 },
             ],
             acceptedRecipeId: "r2",
+            acceptedPortion: "HALF",
         };
 
         const generator = { execute: vi.fn() } as any;
@@ -193,6 +195,7 @@ describe("GetCookingPlanUseCase", () => {
         expect(out.kind).toBe("SUGGESTION");
         expect(out.status).toBe("ACEPTADA");
         expect(out.acceptedRecipeId).toBe("r2");
+        expect(out.acceptedPortion).toBe("HALF");
 
         const accepted = out.recipes.find((x: any) => x.recipeId === out.acceptedRecipeId);
         expect(accepted).toBeTruthy();
