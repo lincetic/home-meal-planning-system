@@ -1,6 +1,7 @@
 import { z } from "zod";
 import { zId } from "../common/ids";
 import { zMealSlot, zSuggestionStatus } from "../common/enums";
+import { zRecipePortion } from "./recipe-portion";
 
 const zDateYYYYMMDD = z.string().regex(/^\d{4}-\d{2}-\d{2}$/);
 
@@ -35,6 +36,7 @@ export const zCookingPlanAccepted = z.object({
         recipeId: zId,
         name: z.string().min(1),
     }),
+    acceptedPortion: zRecipePortion,
 
     alternatives: z.array(zSuggestedRecipe).max(50),
 });
@@ -51,6 +53,7 @@ export const zCookingPlanSuggestion = z.object({
     // Ojo: aquí NO “forzamos” que exista cuando status === ACEPTADA,
     // eso lo garantiza la lógica de backend + tests.
     acceptedRecipeId: zId.nullable().optional(),
+    acceptedPortion: zRecipePortion.nullable().optional(),
 
     recipes: z.array(zSuggestedRecipe).min(1).max(3),
 });

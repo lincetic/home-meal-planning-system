@@ -75,6 +75,7 @@ export class GetCookingPlanUseCase {
                     date: existing.date,
                     slot: existing.slot,
                     acceptedRecipeId: acceptedId,
+                    acceptedPortion: existing.acceptedPortion ?? "FULL",
                     recipes: sorted.map((r, idx) => ({
                         recipeId: r.recipeId,
                         name: r.name,
@@ -92,6 +93,7 @@ export class GetCookingPlanUseCase {
                 date: existing.date,
                 slot: existing.slot,
                 acceptedRecipeId: normalizeAcceptedRecipeId((existing as any).acceptedRecipeId),
+                acceptedPortion: existing.acceptedPortion ?? null,
                 recipes: sorted.map((r, idx) => ({
                     recipeId: r.recipeId,
                     name: r.name,
@@ -134,6 +136,7 @@ export class GetCookingPlanUseCase {
                 date: persisted.date,
                 slot: persisted.slot,
                 acceptedRecipeId: normalizeAcceptedRecipeId((persisted as any).acceptedRecipeId),
+                acceptedPortion: persisted.acceptedPortion ?? null,
                 recipes: persisted.recipes,
             };
         }

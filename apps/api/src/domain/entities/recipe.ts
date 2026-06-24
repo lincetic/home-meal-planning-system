@@ -1,4 +1,5 @@
 import { Quantity } from "../value-objects/quantity";
+import { RecipePortion } from "../value-objects/recipe-portion";
 
 export type RecipeIngredient = {
     ingredientId: string;
@@ -30,5 +31,14 @@ export class Recipe {
 
     getIngredients(): RecipeIngredient[] {
         return this.ingredients;
+    }
+
+    getRequirementsFor(portion: RecipePortion): RecipeIngredient[] {
+        return this.ingredients.map((ingredient) => ({
+            ingredientId: ingredient.ingredientId,
+            amount: Quantity.create(
+                ingredient.amount.getValue() * portion.getMultiplier()
+            ),
+        }));
     }
 }

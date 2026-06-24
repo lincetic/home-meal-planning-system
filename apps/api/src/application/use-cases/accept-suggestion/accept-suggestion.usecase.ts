@@ -1,6 +1,7 @@
 import { InventoryRepository } from "../../ports/inventory-repository";
 import { RecipeRepository } from "../../ports/recipe-repository";
 import { SuggestionRepository } from "../../ports/suggestion-repository";
+import { RecipePortion } from "../../../domain/value-objects/recipe-portion";
 import { AcceptSuggestionInput, AcceptSuggestionOutput } from "./accept-suggestion.dto";
 
 export class AcceptSuggestionUseCase {
@@ -17,7 +18,16 @@ export class AcceptSuggestionUseCase {
 
         // Idempotency
         if (suggestion.status === "ACEPTADA") {
-            return { suggestionId: suggestion.id, status: "ACEPTADA" };
+            if (!suggestion.acceptedRecipeId) {
+                throw new Error("Accepted suggestion has no accepted recipe");
+            }
+
+            return {
+                suggestionId: suggestion.id,
+                status: "ACEPTADA",
+                acceptedRecipeId: suggestion.acceptedRecipeId,
+                acceptedPortion: suggestion.acceptedPortion ?? "FULL",
+            };
         }
 
         // 2) Decide which recipe to accept/consume
@@ -47,8 +57,11 @@ export class AcceptSuggestionUseCase {
         const recipes = await this.recipeRepo.getByIds(suggestion.householdId, [chosenRecipeId]);
         const chosen = recipes[0];
         if (!chosen) throw new Error("Recipe not found");
+        const portion = RecipePortion.create(input.portion ?? "FULL");
+        const requirements = chosen.getRequirementsFor(portion);
+
         // 4.5) Validate inventory before consuming (prevents negative)
-        for (const ing of chosen.getIngredients()) {
+        for (const ing of requirements) {
             const have = inventory.getItem(ing.ingredientId)?.getQuantity().getValue() ?? 0;
             const need = ing.amount.getValue();
             if (have < need) {
@@ -58,15 +71,24 @@ export class AcceptSuggestionUseCase {
             }
         }
 
-        for (const ing of chosen.getIngredients()) {
+        for (const ing of requirements) {
             inventory.consumeIngredient(ing.ingredientId, ing.amount);
         }
 
         // 5) Persist inventory + set status accepted
         await this.inventoryRepo.save(suggestion.householdId, inventory);
-        await this.suggestionRepo.setAcceptedRecipe(suggestion.id, chosenRecipeId);
+        await this.suggestionRepo.setAcceptedRecipe(
+            suggestion.id,
+            chosenRecipeId,
+            portion.getValue()
+        );
         await this.suggestionRepo.setStatus(suggestion.id, "ACEPTADA");
 
-        return { suggestionId: suggestion.id, status: "ACEPTADA" };
+        return {
+            suggestionId: suggestion.id,
+            status: "ACEPTADA",
+            acceptedRecipeId: chosenRecipeId,
+            acceptedPortion: portion.getValue(),
+        };
     }
 }

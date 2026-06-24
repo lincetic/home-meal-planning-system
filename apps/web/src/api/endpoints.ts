@@ -2,6 +2,7 @@ import { apiFetch } from "./client";
 
 export const DEFAULT_HOUSEHOLD_ID = "550e8400-e29b-41d4-a716-446655440000";
 export type MealSlot = "DESAYUNO" | "COMIDA" | "CENA";
+export type RecipePortion = "FULL" | "HALF";
 
 export type Ingredient = { id: string; name: string; category?: string | null };
 
@@ -32,6 +33,7 @@ export type CookingPlanSuggestion = {
     slot: MealSlot;
 
     acceptedRecipeId?: string | null;
+    acceptedPortion?: RecipePortion | null;
 
     recipes: CookingPlanSuggestedRecipe[];
 };
@@ -45,6 +47,7 @@ export type CookingPlanAccepted = {
     slot: MealSlot;
 
     acceptedRecipe: { recipeId: string; name: string };
+    acceptedPortion: RecipePortion;
     alternatives: CookingPlanSuggestedRecipe[];
 };
 
@@ -81,8 +84,17 @@ export function getInventory(householdId: string) {
 }
 
 // ---- Suggestions / Plan
-export function acceptSuggestion(body: { suggestionId: string; recipeId?: string }) {
-    return apiFetch<{ suggestionId: string; status: "ACEPTADA" }>(`/suggestions/accept`, {
+export function acceptSuggestion(body: {
+    suggestionId: string;
+    recipeId?: string;
+    portion?: RecipePortion;
+}) {
+    return apiFetch<{
+        suggestionId: string;
+        status: "ACEPTADA";
+        acceptedRecipeId: string;
+        acceptedPortion: RecipePortion;
+    }>(`/suggestions/accept`, {
         method: "POST",
         body: JSON.stringify(body),
     });

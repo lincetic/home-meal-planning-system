@@ -1,3 +1,5 @@
+import type { RecipePortionValue } from "../../domain/value-objects/recipe-portion";
+
 export type SuggestionStatus = "PROPUESTA" | "ACEPTADA" | "MODIFICADA";
 
 export type PersistedSuggestion = {
@@ -7,6 +9,7 @@ export type PersistedSuggestion = {
     slot: "DESAYUNO" | "COMIDA" | "CENA";
     status: SuggestionStatus;
     acceptedRecipeId?: string | null;
+    acceptedPortion?: RecipePortionValue | null;
     recipes: Array<{ recipeId: string; name: string; position: number }>;
     
 };
@@ -16,5 +19,9 @@ export interface SuggestionRepository {
     getDailySuggestion(householdId: string, date: string, slot: PersistedSuggestion["slot"]): Promise<PersistedSuggestion | null>;
     setStatus(suggestionId: string, status: SuggestionStatus): Promise<void>;
     getById(suggestionId: string): Promise<PersistedSuggestion | null>;
-    setAcceptedRecipe(suggestionId: string, recipeId: string): Promise<void>;
+    setAcceptedRecipe(
+        suggestionId: string,
+        recipeId: string,
+        portion: RecipePortionValue
+    ): Promise<void>;
 }

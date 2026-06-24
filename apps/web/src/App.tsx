@@ -23,6 +23,7 @@ import {
   type AuthUser,
   type Ingredient,
   type MealSlot,
+  type RecipePortion,
   type CookingPlan,
   type CookingPlanSuggestion,
   type CookingPlanNeedsShopping,
@@ -30,6 +31,10 @@ import {
 } from "./api/endpoints";
 
 type MobileTab = "plan" | "inventory";
+
+function errorMessage(error: unknown, fallback: string): string {
+  return error instanceof Error ? error.message : fallback;
+}
 
 export default function App() {
   const [householdId, setHouseholdId] = useState<string>(DEFAULT_HOUSEHOLD_ID);
@@ -59,6 +64,7 @@ export default function App() {
   const [plan, setPlan] = useState<CookingPlan | null>(null);
 
   const [selectedRecipeId, setSelectedRecipeId] = useState<string>("");
+  const [selectedPortion, setSelectedPortion] = useState<RecipePortion>("FULL");
 
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState<string>("");
@@ -126,10 +132,12 @@ export default function App() {
 
         setHouseholdId(firstHouseholdId);
         await refreshInventory(firstHouseholdId);
-      } catch (e: any) {
-        localLogout(e?.message ?? "Session expired. Please login again.");
+      } catch (error: unknown) {
+        localLogout(errorMessage(error, "Session expired. Please login again."));
       }
     })();
+    // The initial session restoration intentionally runs once on mount.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   useEffect(() => {
@@ -158,6 +166,7 @@ export default function App() {
   useEffect(() => {
     if (!plan || plan.kind !== "SUGGESTION") {
       setSelectedRecipeId("");
+      setSelectedPortion("FULL");
       return;
     }
 
@@ -165,6 +174,7 @@ export default function App() {
 
     if (sug.status === "ACEPTADA" && sug.acceptedRecipeId) {
       setSelectedRecipeId(sug.acceptedRecipeId);
+      setSelectedPortion(sug.acceptedPortion ?? "FULL");
       return;
     }
 
@@ -182,7 +192,7 @@ export default function App() {
     setBusy(true);
     setErr("");
     try {
-      const body: any = {
+      const body = {
         householdId,
         operations: [
           {
@@ -204,8 +214,8 @@ export default function App() {
       await refreshInventory();
       setPlan(null);
       setTab("inventory");
-    } catch (e: any) {
-      setErr(e?.message ?? "Failed to update inventory");
+    } catch (error: unknown) {
+      setErr(errorMessage(error, "Failed to update inventory"));
     } finally {
       setBusy(false);
     }
@@ -234,8 +244,8 @@ export default function App() {
           setIngredientNames((prev) => ({ ...prev, ...map }));
         }
       }
-    } catch (e: any) {
-      setErr(e?.message ?? "Failed to compute plan");
+    } catch (error: unknown) {
+      setErr(errorMessage(error, "Failed to compute plan"));
     } finally {
       setBusy(false);
     }
@@ -259,6 +269,7 @@ export default function App() {
       await acceptSuggestion({
         suggestionId: plan.suggestionId,
         recipeId: chosenId,
+        portion: selectedPortion,
       });
 
       await refreshInventory();
@@ -272,8 +283,8 @@ export default function App() {
 
       setPlan(out);
       setTab("plan");
-    } catch (e: any) {
-      setErr(e?.message ?? "Failed to accept suggestion");
+    } catch (error: unknown) {
+      setErr(errorMessage(error, "Failed to accept suggestion"));
     } finally {
       setBusy(false);
     }
@@ -322,8 +333,8 @@ export default function App() {
       setHouseholdId(firstHouseholdId);
       await refreshInventory(firstHouseholdId);
       setTab("plan");
-    } catch (e: any) {
-      setAuthErr(e?.message ?? "Authentication failed");
+    } catch (error: unknown) {
+      setAuthErr(errorMessage(error, "Authentication failed"));
     } finally {
       setAuthBusy(false);
     }
@@ -498,6 +509,26 @@ export default function App() {
                 </div>
 
                 <div className="mt-4">
+                  <label className="mb-1 block text-sm font-medium text-slate-700">
+                    Recipe portion
+                  </label>
+                  <Select
+                    value={
+                      isAccepted && plan.acceptedPortion
+                        ? plan.acceptedPortion
+                        : selectedPortion
+                    }
+                    onChange={(event) =>
+                      setSelectedPortion(event.target.value as RecipePortion)
+                    }
+                    disabled={busy || isAccepted}
+                  >
+                    <option value="FULL">Receta completa</option>
+                    <option value="HALF">Media receta</option>
+                  </Select>
+                </div>
+
+                <div className="mt-4">
                   <Button
                     variant="success"
                     onClick={acceptCurrentSuggestion}
@@ -560,6 +591,9 @@ export default function App() {
                 <div className="mt-2 text-sm text-slate-500">Accepted recipe</div>
                 <div className="mt-1 text-lg font-semibold text-slate-900">
                   {plan.acceptedRecipe.name}
+                </div>
+                <div className="mt-1 text-sm text-slate-600">
+                  {plan.acceptedPortion === "HALF" ? "Media receta" : "Receta completa"}
                 </div>
               </div>
 

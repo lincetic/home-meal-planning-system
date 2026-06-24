@@ -35,10 +35,18 @@ class FakeSuggestionRepo implements SuggestionRepository {
         this.byId.set(suggestionId, { ...s, status });
     }
 
-    async setAcceptedRecipe(suggestionId: string, recipeId: string): Promise<void> {
+    async setAcceptedRecipe(
+        suggestionId: string,
+        recipeId: string,
+        portion: "FULL" | "HALF"
+    ): Promise<void> {
         const s = this.byId.get(suggestionId);
         if (!s) throw new Error("Suggestion not found");
-        this.byId.set(suggestionId, { ...s, acceptedRecipeId: recipeId });
+        this.byId.set(suggestionId, {
+            ...s,
+            acceptedRecipeId: recipeId,
+            acceptedPortion: portion,
+        });
     }
 }
 
@@ -111,7 +119,12 @@ describe("AcceptSuggestionUseCase", () => {
         const out = await uc.execute({ suggestionId, recipeId: "r2" });
 
         // Output should include accepted status (and optionally acceptedRecipeId if you add it)
-        expect(out).toEqual({ suggestionId, status: "ACEPTADA" });
+        expect(out).toEqual({
+            suggestionId,
+            status: "ACEPTADA",
+            acceptedRecipeId: "r2",
+            acceptedPortion: "FULL",
+        });
 
         // Inventory consumed ONLY for r2:
         // milk stays 2, rice 1->0 (removed)
@@ -178,15 +191,23 @@ describe("AcceptSuggestionUseCase", () => {
             date: "2026-02-03",
             slot: "CENA",
             status: "ACEPTADA",
+            acceptedRecipeId: "r1",
+            acceptedPortion: "HALF",
             recipes: [{ recipeId: "r1", name: "Milk & Cereal", position: 0 }],
         };
         const suggestionRepo = new FakeSuggestionRepo([suggestion]);
 
         const uc = new AcceptSuggestionUseCase(suggestionRepo, inventoryRepo, recipeRepo);
 
-        const out = await uc.execute({ suggestionId });
+        const out = await uc.execute({ suggestionId, portion: "FULL" });
 
-        expect(out).toEqual({ suggestionId, status: "ACEPTADA" });
+        expect(out).toEqual({
+            suggestionId,
+            status: "ACEPTADA",
+            acceptedRecipeId: "r1",
+            acceptedPortion: "HALF",
+        });
+        expect(inv.getItem("milk")?.getQuantity().getValue()).toBe(2);
     });
 
     it("throws when inventory is insufficient (conflict case)", async () => {
@@ -215,6 +236,80 @@ describe("AcceptSuggestionUseCase", () => {
         const uc = new AcceptSuggestionUseCase(suggestionRepo, inventoryRepo, recipeRepo);
 
         await expect(uc.execute({ suggestionId, recipeId: "r1" })).rejects.toThrow();
+    });
+
+    it("accepts half a recipe and consumes half of every ingredient requirement", async () => {
+        const householdId = "home-half";
+        const suggestionId = "sug-half";
+        const inv = new Inventory();
+        inv.addIngredient("rice", Quantity.create(1));
+
+        const inventoryRepo = new FakeInventoryRepo(new Map([[householdId, inv]]));
+        const recipeRepo = new FakeRecipeRepo(new Map([
+            [householdId, [
+                new Recipe("r-half", "Rice Bowl", [
+                    { ingredientId: "rice", amount: Quantity.create(2) },
+                ]),
+            ]],
+        ]));
+        const suggestionRepo = new FakeSuggestionRepo([{
+            id: suggestionId,
+            householdId,
+            date: "2026-06-24",
+            slot: "COMIDA",
+            status: "PROPUESTA",
+            recipes: [{ recipeId: "r-half", name: "Rice Bowl", position: 0 }],
+        }]);
+
+        const uc = new AcceptSuggestionUseCase(suggestionRepo, inventoryRepo, recipeRepo);
+
+        const out = await uc.execute({
+            suggestionId,
+            recipeId: "r-half",
+            portion: "HALF",
+        });
+
+        expect(out).toEqual({
+            suggestionId,
+            status: "ACEPTADA",
+            acceptedRecipeId: "r-half",
+            acceptedPortion: "HALF",
+        });
+        expect(inv.getItem("rice")).toBeUndefined();
+    });
+
+    it("rejects a half recipe when inventory is still insufficient without saving", async () => {
+        const householdId = "home-insufficient-half";
+        const suggestionId = "sug-insufficient-half";
+        const inv = new Inventory();
+        inv.addIngredient("rice", Quantity.create(0.4));
+
+        const inventoryRepo = new FakeInventoryRepo(new Map([[householdId, inv]]));
+        const recipeRepo = new FakeRecipeRepo(new Map([
+            [householdId, [
+                new Recipe("r-half", "Rice Bowl", [
+                    { ingredientId: "rice", amount: Quantity.create(2) },
+                ]),
+            ]],
+        ]));
+        const suggestionRepo = new FakeSuggestionRepo([{
+            id: suggestionId,
+            householdId,
+            date: "2026-06-24",
+            slot: "COMIDA",
+            status: "PROPUESTA",
+            recipes: [{ recipeId: "r-half", name: "Rice Bowl", position: 0 }],
+        }]);
+
+        const uc = new AcceptSuggestionUseCase(suggestionRepo, inventoryRepo, recipeRepo);
+
+        await expect(uc.execute({
+            suggestionId,
+            recipeId: "r-half",
+            portion: "HALF",
+        })).rejects.toThrow("Not enough inventory");
+        expect(inventoryRepo.saved).toBeNull();
+        expect(inv.getItem("rice")?.getQuantity().getValue()).toBe(0.4);
     });
 
 });
