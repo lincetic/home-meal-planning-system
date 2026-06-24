@@ -6,6 +6,7 @@ const DEFAULT_HOUSEHOLD_ID = "550e8400-e29b-41d4-a716-446655440000";
 const WRONG_HOUSEHOLD_ID = "11111111-1111-1111-1111-111111111111";
 const DEFAULT_RECIPE_ID = "22222222-2222-4222-8222-222222222222";
 const WRONG_RECIPE_ID = "33333333-3333-4333-8333-333333333333";
+const PLAN_TEST_RECIPE_ID = "55555555-5555-4555-8555-555555555555";
 
 async function resetDb() {
     const testHouseholdIds = [DEFAULT_HOUSEHOLD_ID, WRONG_HOUSEHOLD_ID];
@@ -124,9 +125,9 @@ async function seedMinimalRecipeForHousehold(householdId: string) {
 
     // Ensure a stable recipe exists for this household
     await prisma.recipe.upsert({
-        where: { id: "test-recipe-1" },
+        where: { id: PLAN_TEST_RECIPE_ID },
         create: {
-            id: "test-recipe-1",
+            id: PLAN_TEST_RECIPE_ID,
             householdId,
             name: "Milk & Cereal (test)",
             ingredients: {
@@ -235,6 +236,53 @@ describe("Authorization checks", () => {
         });
 
         expect(res.statusCode).toBe(403);
+    });
+
+    it("POST /plan/today returns recipes matching the HTTP contract", async () => {
+        const ingredient = await prisma.ingredient.findUniqueOrThrow({
+            where: { normalizedName: "leche" },
+            select: { id: true },
+        });
+        await prisma.inventoryItem.upsert({
+            where: {
+                householdId_ingredientId: {
+                    householdId: DEFAULT_HOUSEHOLD_ID,
+                    ingredientId: ingredient.id,
+                },
+            },
+            create: {
+                householdId: DEFAULT_HOUSEHOLD_ID,
+                ingredientId: ingredient.id,
+                quantity: 2,
+            },
+            update: { quantity: 2 },
+        });
+
+        const { buildApp } = await import("../../server");
+        const app = buildApp();
+        const loginRes = await app.inject({
+            method: "POST",
+            url: "/auth/login",
+            payload: {
+                email: "demo@tfm.local",
+                password: "Password123!",
+            },
+        });
+
+        const res = await app.inject({
+            method: "POST",
+            url: "/plan/today",
+            headers: {
+                authorization: `Bearer ${loginRes.json().accessToken}`,
+            },
+            payload: {
+                householdId: DEFAULT_HOUSEHOLD_ID,
+                date: "2026-07-01",
+                slot: "CENA",
+            },
+        });
+
+        expect(res.statusCode).toBe(200);
     });
 
     it("POST /suggestions/accept without token returns 401", async () => {
